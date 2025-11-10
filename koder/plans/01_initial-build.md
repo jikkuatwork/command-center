@@ -148,13 +148,13 @@
 **Duration**: 10-15 minutes
 
 ### Tasks:
-- [ ] Implement `internal/config/config.go`:
+- [x] Implement `internal/config/config.go`:
   - Load from environment variables
   - Fallback to defaults
   - Validation
   - Config struct with all settings
 
-- [ ] Implement `cmd/server/main.go`:
+- [x] Implement `cmd/server/main.go`:
   - Load configuration
   - Initialize database
   - Setup HTTP router (use `gorilla/mux` or `chi`)
@@ -163,7 +163,7 @@
   - Logging middleware
   - Recovery middleware
 
-- [ ] Setup routing structure (no handlers yet):
+- [x] Setup routing structure (no handlers yet):
   ```go
   // API routes
   r.HandleFunc("/track", trackHandler).Methods("POST", "OPTIONS")
@@ -187,7 +187,7 @@
   r.HandleFunc("/", dashboardHandler).Methods("GET")
   ```
 
-- [ ] Test server starts and responds on :4698
+- [x] Test server starts and responds on :4698
 
 **Commit**: `feat: core server setup with routing and middleware`
 
