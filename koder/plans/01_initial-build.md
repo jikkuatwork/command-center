@@ -280,7 +280,7 @@
 **Duration**: 15 minutes
 
 ### Tasks:
-- [ ] Implement `internal/handlers/webhook.go`:
+- [x] Implement `internal/handlers/webhook.go`:
   - Validate webhook endpoint exists and is active
   - Verify secret if configured (HMAC SHA256)
   - Parse JSON payload (flexible structure)
@@ -288,8 +288,8 @@
   - Extract useful fields (event type, source, etc.)
   - Return 200 OK with confirmation JSON
 
-- [ ] Create webhook registration helpers
-- [ ] Mock webhook sender for testing:
+- [x] Create webhook registration helpers
+- [x] Mock webhook sender for testing:
   ```bash
   # Test webhook
   curl -X POST http://localhost:4698/webhook/deployment \
@@ -297,7 +297,7 @@
     -d '{"event":"deploy","project":"my-site","status":"success"}'
   ```
 
-- [ ] Test webhook logging
+- [x] Test webhook logging
 
 **Commit**: `feat: webhook handler with secret validation`
 

@@ -155,7 +155,11 @@ func GenerateMockData() error {
 	for i := 0; i < 5; i++ {
 		name := webhookNames[i]
 		endpoint := webhookEndpoints[i]
-		secret := fmt.Sprintf("secret_%d_%d", i, rand.Intn(10000))
+		// First 3 webhooks without secret for easy testing, last 2 with secret
+		secret := ""
+		if i >= 3 {
+			secret = fmt.Sprintf("secret_%d_%d", i, rand.Intn(10000))
+		}
 		isActive := true
 
 		_, err := db.Exec(`
