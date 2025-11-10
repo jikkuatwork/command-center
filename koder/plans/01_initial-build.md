@@ -72,7 +72,7 @@
 **Duration**: 15-20 minutes
 
 ### Tasks:
-- [ ] Create SQLite schema in `migrations/001_initial.sql`:
+- [x] Create SQLite schema in `migrations/001_initial.sql`:
   ```sql
   CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,20 +121,20 @@
   );
   ```
 
-- [ ] Implement `internal/database/db.go`:
+- [x] Implement `internal/database/db.go`:
   - Initialize SQLite connection with WAL mode
   - Run migrations on startup
   - Connection pool configuration
   - Helper functions: `GetDB()`, `Close()`
 
-- [ ] Implement `internal/models/models.go`:
+- [x] Implement `internal/models/models.go`:
   - Event struct
   - Redirect struct
   - Webhook struct
   - Notification struct
   - Helper methods for JSON marshaling tags
 
-- [ ] Create mock data generator for testing:
+- [x] Create mock data generator for testing:
   - Insert 100 sample events across different domains/tags
   - Insert 10 sample redirects
   - Insert 5 sample webhooks
