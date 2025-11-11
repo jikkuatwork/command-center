@@ -748,6 +748,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load initial page
   navigate('dashboard');
 
+  // Register service worker for PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js')
+      .then(reg => console.log('Service Worker registered', reg))
+      .catch(err => console.log('Service Worker registration failed', err));
+  }
+
   // Auto-refresh every 30 seconds
   setInterval(() => {
     if (state.currentPage === 'dashboard') {

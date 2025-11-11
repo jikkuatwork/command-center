@@ -1,0 +1,27 @@
+{
+  "name": "Command Center",
+  "short_name": "CC",
+  "description": "Analytics & Monitoring Dashboard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#206bc4",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["analytics", "productivity", "utilities"],
+  "lang": "en-US"
+}
