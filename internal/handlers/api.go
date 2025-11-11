@@ -465,24 +465,9 @@ func WebhooksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DashboardHandler serves the main dashboard page (to be implemented in Phase 8)
+// DashboardHandler serves the main dashboard page
 func DashboardHandler(w http.ResponseWriter, r *http.Request) {
-	// Placeholder - will be implemented in Phase 8
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(`
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<title>Command Center</title>
-		</head>
-		<body>
-			<h1>Command Center</h1>
-			<p>Dashboard coming soon...</p>
-			<p>Server is running on port 4698</p>
-			<p>API endpoints are ready - try <a href="/api/stats">/api/stats</a></p>
-		</body>
-		</html>
-	`))
+	http.ServeFile(w, r, "./web/templates/index.html")
 }
 
 // parseInt parses string to int with default value

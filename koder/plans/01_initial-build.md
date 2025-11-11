@@ -390,12 +390,12 @@
 **Duration**: 30 minutes
 
 ### Tasks:
-- [ ] Download Tabler from CDN or npm (use dist files):
+- [x] Download Tabler from CDN or npm (use dist files):
   - tabler.min.css
   - tabler.min.js
   - tabler-icons.min.css
 
-- [ ] Place in `web/static/`:
+- [x] Place in `web/static/`:
   ```
   web/static/
   ├── css/
@@ -409,7 +409,7 @@
       └── logo-placeholder.svg
   ```
 
-- [ ] Create `web/templates/index.html`:
+- [x] Create `web/templates/index.html`:
   - Base HTML structure
   - Tabler theme setup (light/dark mode toggle)
   - Navigation sidebar with sections:
@@ -422,9 +422,9 @@
   - Mobile-responsive header
   - PWA meta tags
 
-- [ ] Create placeholder logo SVG
-- [ ] Test static file serving
-- [ ] Verify responsive layout on different viewport sizes
+- [x] Create placeholder logo SVG
+- [x] Test static file serving
+- [x] Verify responsive layout on different viewport sizes
 
 **Commit**: `feat: tabler frontend integration with responsive layout`
 

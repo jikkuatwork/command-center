@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Command Center - Analytics & Monitoring Dashboard">
+  <meta name="theme-color" content="#206bc4">
+  <title>Command Center - Dashboard</title>
+
+  <!-- Tabler CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
+
+  <!-- Custom CSS -->
+  <link href="/static/css/custom.css" rel="stylesheet">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/static/manifest.json">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+</head>
+<body>
+  <div class="page">
+    <!-- Sidebar -->
+    <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+      <div class="container-fluid">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <h1 class="navbar-brand navbar-brand-autodark">
+          <a href="/">
+            <span class="navbar-brand-text">Command Center</span>
+          </a>
+        </h1>
+
+        <div class="collapse navbar-collapse" id="sidebar-menu">
+          <ul class="navbar-nav pt-lg-3">
+            <li class="nav-item active">
+              <a class="nav-link" href="#" data-page="dashboard">
+                <span class="nav-link-icon d-md-none d-lg-inline-block">
+                  <i class="ti ti-home"></i>
+                </span>
+                <span class="nav-link-title">Dashboard</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-page="analytics">
+                <span class="nav-link-icon d-md-none d-lg-inline-block">
+                  <i class="ti ti-chart-bar"></i>
+                </span>
+                <span class="nav-link-title">Analytics</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-page="redirects">
+                <span class="nav-link-icon d-md-none d-lg-inline-block">
+                  <i class="ti ti-link"></i>
+                </span>
+                <span class="nav-link-title">Redirects</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-page="webhooks">
+                <span class="nav-link-icon d-md-none d-lg-inline-block">
+                  <i class="ti ti-webhook"></i>
+                </span>
+                <span class="nav-link-title">Webhooks</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-page="settings">
+                <span class="nav-link-icon d-md-none d-lg-inline-block">
+                  <i class="ti ti-settings"></i>
+                </span>
+                <span class="nav-link-title">Settings</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="page-wrapper">
+      <!-- Page Header -->
+      <div class="page-header d-print-none">
+        <div class="container-xl">
+          <div class="row g-2 align-items-center">
+            <div class="col">
+              <h2 class="page-title" id="page-title">Dashboard</h2>
+            </div>
+            <div class="col-auto ms-auto">
+              <div class="btn-list">
+                <button class="btn btn-icon" id="theme-toggle" title="Toggle theme">
+                  <i class="ti ti-sun"></i>
+                </button>
+                <button class="btn btn-icon" id="refresh-btn" title="Refresh data">
+                  <i class="ti ti-refresh"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Page Body -->
+      <div class="page-body">
+        <div class="container-xl">
+          <div id="app-content">
+            <!-- Content will be loaded here dynamically -->
+            <div class="text-center py-5">
+              <div class="loading-spinner" style="width: 3rem; height: 3rem; border-width: 4px;"></div>
+              <p class="mt-3 text-muted">Loading dashboard...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <footer class="footer footer-transparent d-print-none">
+        <div class="container-xl">
+          <div class="row text-center align-items-center flex-row-reverse">
+            <div class="col-12 col-lg-auto mt-3 mt-lg-0">
+              <ul class="list-inline list-inline-dots mb-0">
+                <li class="list-inline-item">
+                  Command Center v0.1.0
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Tabler JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/js/tabler.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- App JS -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
