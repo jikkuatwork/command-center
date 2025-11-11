@@ -111,13 +111,13 @@
 **Duration**: 15 minutes
 
 ### Tasks:
-- [ ] Create `internal/auth/password.go`:
+- [x] Create `internal/auth/password.go`:
   - Hash password function using bcrypt (cost 12)
   - Verify password function
   - Generate secure random salt
   - Error handling for invalid inputs
 
-- [ ] Integrate password hashing into main.go:
+- [x] Integrate password hashing into main.go:
   - When `--username` and `--password` flags are provided:
     - Load or create config file
     - Hash the password
@@ -127,17 +127,17 @@
     - Log success message with credentials set
     - Exit gracefully (don't start server in this mode)
 
-- [ ] Add password strength validation:
+- [x] Add password strength validation:
   - Minimum 8 characters
   - Warning for weak passwords (log to console)
   - Recommendations for strong passwords
 
-- [ ] Update `.gitignore`:
+- [x] Update `.gitignore`:
   - Add `config.json` (don't commit passwords!)
   - Add `.env`
   - Keep `config.example.json` in repo
 
-- [ ] Add helpful messages:
+- [x] Add helpful messages:
   ```
   Example usage:
   ./cc-server --username admin --password mysecurepass123

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jikku/command-center/internal/auth"
 	"github.com/jikku/command-center/internal/config"
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/handlers"
@@ -19,6 +21,12 @@ func main() {
 
 	// Parse CLI flags
 	flags := config.ParseFlags()
+
+	// Handle credential setup mode (--username and --password flags)
+	if flags.Username != "" && flags.Password != "" {
+		handleCredentialSetup(flags)
+		return
+	}
 
 	// Load configuration
 	cfg, err := config.Load(flags)
@@ -180,4 +188,67 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// handleCredentialSetup sets up or updates credentials when --username and --password flags are provided
+func handleCredentialSetup(flags *config.CLIFlags) {
+	log.Println("Setting up authentication credentials...")
+
+	// Validate password strength
+	isStrong, warnings := auth.ValidatePasswordStrength(flags.Password)
+	if len(warnings) > 0 {
+		log.Println("Password strength warnings:")
+		for _, warning := range warnings {
+			log.Printf("  - %s", warning)
+		}
+	}
+	if isStrong {
+		log.Println("Password strength: Strong")
+	} else {
+		log.Println("Password strength: Weak (but acceptable)")
+	}
+
+	// Hash the password
+	passwordHash, err := auth.HashPassword(flags.Password)
+	if err != nil {
+		log.Fatalf("Failed to hash password: %v", err)
+	}
+
+	// Load or create config
+	configPath := config.ExpandPath(flags.ConfigPath)
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("Config file not found, creating new config at %s", configPath)
+			cfg = config.CreateDefaultConfig()
+		} else {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+	}
+
+	// Update auth configuration
+	cfg.Auth.Enabled = true
+	cfg.Auth.Username = flags.Username
+	cfg.Auth.PasswordHash = passwordHash
+
+	// Save config
+	if err := config.SaveToFile(cfg, configPath); err != nil {
+		log.Fatalf("Failed to save config: %v", err)
+	}
+
+	// Success message
+	fmt.Println()
+	fmt.Println("✓ Authentication configured successfully!")
+	fmt.Println()
+	fmt.Printf("Config file: %s\n", configPath)
+	fmt.Printf("Username:    %s\n", flags.Username)
+	fmt.Println("Password:    [hashed and saved]")
+	fmt.Println("Auth:        enabled")
+	fmt.Println()
+	fmt.Println("To start the server:")
+	fmt.Println("  ./cc-server")
+	fmt.Println()
+	fmt.Println("Or with custom config:")
+	fmt.Printf("  ./cc-server --config %s\n", configPath)
+	fmt.Println()
 }

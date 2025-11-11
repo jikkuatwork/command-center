@@ -95,15 +95,15 @@ func Load(flags *CLIFlags) (*Config, error) {
 	}
 
 	// Expand home directory in paths
-	configPath := expandPath(flags.ConfigPath)
+	configPath := ExpandPath(flags.ConfigPath)
 
 	// Try to load from JSON file
-	cfg, err := loadFromFile(configPath)
+	cfg, err := LoadFromFile(configPath)
 	if err != nil {
 		// If file doesn't exist, create default config
 		if os.IsNotExist(err) {
 			log.Printf("Config file not found at %s, creating default config...", configPath)
-			cfg = createDefaultConfig()
+			cfg = CreateDefaultConfig()
 		} else {
 			return nil, fmt.Errorf("failed to load config: %w", err)
 		}
@@ -127,8 +127,8 @@ func Load(flags *CLIFlags) (*Config, error) {
 	return appConfig, nil
 }
 
-// loadFromFile loads configuration from a JSON file
-func loadFromFile(path string) (*Config, error) {
+// LoadFromFile loads configuration from a JSON file (exported for use in main.go)
+func LoadFromFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -165,8 +165,8 @@ func SaveToFile(cfg *Config, path string) error {
 	return nil
 }
 
-// createDefaultConfig creates a default configuration
-func createDefaultConfig() *Config {
+// CreateDefaultConfig creates a default configuration (exported for use in main.go)
+func CreateDefaultConfig() *Config {
 	homeDir, _ := os.UserHomeDir()
 	defaultDBPath := filepath.Join(homeDir, ".config", "cc", "data.db")
 
@@ -216,12 +216,12 @@ func applyCLIFlags(cfg *Config, flags *CLIFlags) {
 		cfg.Server.Port = flags.Port
 	}
 	if flags.DBPath != "" {
-		cfg.Database.Path = expandPath(flags.DBPath)
+		cfg.Database.Path = ExpandPath(flags.DBPath)
 	}
 }
 
-// expandPath expands ~ to home directory
-func expandPath(path string) string {
+// ExpandPath expands ~ to home directory (exported for use in main.go)
+func ExpandPath(path string) string {
 	if strings.HasPrefix(path, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err == nil {
@@ -253,7 +253,7 @@ func (c *Config) Validate() error {
 	}
 
 	// Expand database path
-	c.Database.Path = expandPath(c.Database.Path)
+	c.Database.Path = ExpandPath(c.Database.Path)
 
 	// Validate auth config
 	if c.Auth.Enabled {
