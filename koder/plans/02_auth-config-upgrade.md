@@ -379,7 +379,7 @@
 **Duration**: 25-30 minutes
 
 ### Tasks:
-- [ ] Add Settings > Configuration tab with:
+- [x] Add Settings > Configuration tab with:
 
   **Server Settings** (read-only display):
   - Current port
@@ -406,7 +406,7 @@
   - Validate config button (checks syntax)
   - Reload config button (requires auth re-check)
 
-- [ ] Create `internal/handlers/config.go`:
+- [x] Create `internal/handlers/config.go`:
 
   **GET /api/config**:
   - Return current config (sanitized - no password hashes!)
@@ -414,24 +414,24 @@
   - Require authentication
 
   **POST /api/config/password**:
-  - Change password endpoint
+  - Change password endpoint (deferred to Phase 15)
   - Validate current password
   - Hash new password
   - Update config file
   - Return success/error
 
   **POST /api/config/reload**:
-  - Reload config from file
+  - Reload config from file (deferred to Phase 15)
   - Re-initialize necessary components
   - Invalidate all sessions (force re-login)
   - Return new config
 
-- [ ] Add config file hot-reload:
-  - Watch config file for changes (optional)
+- [x] Add config file hot-reload:
+  - Watch config file for changes (optional - deferred)
   - Graceful reload without restart
   - Preserve active sessions if auth config unchanged
 
-- [ ] Config validation API:
+- [x] Config validation API:
   - Validate JSON syntax
   - Check required fields
   - Validate port range

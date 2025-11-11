@@ -106,6 +106,7 @@ func main() {
 	mux.HandleFunc("/api/domains", handlers.DomainsHandler)
 	mux.HandleFunc("/api/tags", handlers.TagsHandler)
 	mux.HandleFunc("/api/webhooks", handlers.WebhooksHandler)
+	mux.HandleFunc("/api/config", handlers.ConfigHandler)
 
 	// Static files
 	fs := http.FileServer(http.Dir("./web/static"))
