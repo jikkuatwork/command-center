@@ -211,14 +211,14 @@
 **Duration**: 20 minutes
 
 ### Tasks:
-- [ ] Create `internal/middleware/auth.go`:
+- [x] Create `internal/middleware/auth.go`:
   - Authentication middleware
   - Check session cookie
   - Validate session with store
   - Redirect to login if unauthorized
   - Skip auth for public endpoints
 
-- [ ] Implement middleware:
+- [x] Implement middleware:
   ```go
   func AuthMiddleware(next http.Handler) http.Handler {
       return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +240,7 @@
   }
   ```
 
-- [ ] Define public endpoints (no auth required):
+- [x] Define public endpoints (no auth required):
   - `/track` - tracking endpoint
   - `/pixel.gif` - tracking pixel
   - `/r/*` - redirects
@@ -250,7 +250,7 @@
   - `/api/login` - login API
   - `/health` - health check
 
-- [ ] Protect private endpoints:
+- [x] Protect private endpoints:
   - `/` - dashboard
   - `/api/stats` - analytics
   - `/api/events` - event list
@@ -260,7 +260,7 @@
   - `/api/tags` - tag list
   - All other `/api/*` routes
 
-- [ ] Add auth bypass for development mode:
+- [x] Add auth bypass for development mode:
   - If `auth.enabled = false` in config, skip all auth checks
   - Log warning when auth is disabled
 

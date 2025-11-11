@@ -14,6 +14,7 @@ import (
 	"github.com/jikku/command-center/internal/config"
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/handlers"
+	"github.com/jikku/command-center/internal/middleware"
 )
 
 func main() {
@@ -32,6 +33,17 @@ func main() {
 	cfg, err := config.Load(flags)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Initialize session store
+	sessionStore := auth.NewSessionStore(auth.SessionTTL)
+	defer sessionStore.Stop()
+
+	// Log auth status
+	if cfg.Auth.Enabled {
+		log.Printf("Authentication: enabled (user: %s)", cfg.Auth.Username)
+	} else {
+		log.Println("Authentication: disabled (warning: dashboard is publicly accessible)")
 	}
 
 	// Initialize database
@@ -60,8 +72,14 @@ func main() {
 	// Create router
 	mux := http.NewServeMux()
 
-	// Apply middleware
-	handler := loggingMiddleware(corsMiddleware(recoveryMiddleware(mux)))
+	// Apply middleware (order: recovery -> cors -> auth -> logging)
+	handler := loggingMiddleware(
+		middleware.AuthMiddleware(sessionStore)(
+			corsMiddleware(
+				recoveryMiddleware(mux),
+			),
+		),
+	)
 
 	// API routes - Tracking
 	mux.HandleFunc("/track", handlers.TrackHandler)
