@@ -1,5 +1,6 @@
 # Binaries
 cc-server
+cc-server-*
 *.exe
 *.exe~
 *.dll
