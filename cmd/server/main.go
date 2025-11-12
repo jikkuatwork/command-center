@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -18,8 +21,36 @@ import (
 	"github.com/jikku/command-center/internal/middleware"
 )
 
+const Version = "v0.2.0"
+
+var (
+	showVersion = flag.Bool("version", false, "Show version and exit")
+	showHelp    = flag.Bool("help", false, "Show help and exit")
+	verbose     = flag.Bool("verbose", false, "Enable verbose logging")
+	quiet       = flag.Bool("quiet", false, "Quiet mode (errors only)")
+)
+
 func main() {
-	log.Println("Starting Command Center...")
+	// Check for --version or --help before parsing other flags
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-version" {
+			printVersion()
+			return
+		}
+		if arg == "--help" || arg == "-help" || arg == "-h" {
+			printHelp()
+			return
+		}
+	}
+
+	// Configure logging based on flags
+	if *quiet {
+		log.SetOutput(io.Discard)
+	}
+
+	if !*quiet {
+		log.Println("Starting Command Center...")
+	}
 
 	// Parse CLI flags
 	flags := config.ParseFlags()
@@ -314,4 +345,49 @@ func handleCredentialSetup(flags *config.CLIFlags) {
 	fmt.Println("Or with custom config:")
 	fmt.Printf("  ./cc-server --config %s\n", configPath)
 	fmt.Println()
+}
+
+// printVersion displays version information
+func printVersion() {
+	fmt.Printf("Command Center %s\n", Version)
+	fmt.Printf("Go version: %s\n", runtime.Version())
+	fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+}
+
+// printHelp displays usage information
+func printHelp() {
+	fmt.Println("Command Center v0.2.0 - Universal Tracking & Analytics Server")
+	fmt.Println()
+	fmt.Println("USAGE:")
+	fmt.Println("  cc-server [flags]")
+	fmt.Println()
+	fmt.Println("FLAGS:")
+	fmt.Println("  --config <path>       Path to config file (default: ~/.config/cc/config.json)")
+	fmt.Println("  --env <environment>   Load environment-specific config (development/production)")
+	fmt.Println("  --db <path>           Database file path (overrides config)")
+	fmt.Println("  --port <port>         Server port (overrides config)")
+	fmt.Println("  --username <user>     Set/update username (creates/updates config)")
+	fmt.Println("  --password <pass>     Set/update password (creates/updates config)")
+	fmt.Println("  --version             Show version and exit")
+	fmt.Println("  --help, -h            Show this help")
+	fmt.Println("  --verbose             Enable verbose logging")
+	fmt.Println("  --quiet               Quiet mode (errors only)")
+	fmt.Println()
+	fmt.Println("EXAMPLES:")
+	fmt.Println("  # Setup authentication")
+	fmt.Println("  cc-server --username admin --password mysecurepass")
+	fmt.Println()
+	fmt.Println("  # Start server with default config")
+	fmt.Println("  cc-server")
+	fmt.Println()
+	fmt.Println("  # Start with specific environment")
+	fmt.Println("  cc-server --env production")
+	fmt.Println()
+	fmt.Println("  # Start with custom config and database")
+	fmt.Println("  cc-server --config /path/to/config.json --db /path/to/data.db")
+	fmt.Println()
+	fmt.Println("  # Start on custom port")
+	fmt.Println("  cc-server --port 8080")
+	fmt.Println()
+	fmt.Println("For more information, visit: https://github.com/jikkuatwork/command-center")
 }
