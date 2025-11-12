@@ -19,6 +19,7 @@ import (
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/handlers"
 	"github.com/jikku/command-center/internal/middleware"
+	"github.com/jikku/command-center/internal/security"
 )
 
 const Version = "v0.2.0"
@@ -66,6 +67,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	// Ensure secure file permissions
+	security.EnsureSecurePermissions(config.ExpandPath(flags.ConfigPath), cfg.Database.Path)
 
 	// Display startup information
 	fmt.Println()
