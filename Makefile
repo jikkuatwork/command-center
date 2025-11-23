@@ -1,6 +1,6 @@
-.PHONY: build run test clean install-deps setup-auth
+.PHONY: build run test clean install-deps setup-auth help
 
-# Build the binary
+# Build the binary (release)
 build:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-w -s" -o cc-server ./cmd/server
 
@@ -9,8 +9,8 @@ build-local:
 	go build -o cc-server ./cmd/server
 
 # Run the server locally
-run:
-	go run cmd/server/main.go
+run: build-local
+	./cc-server
 
 # Run with custom config
 run-with-config:
@@ -18,7 +18,7 @@ run-with-config:
 
 # Setup authentication (interactive)
 setup-auth:
-	@echo "Setting up authentication for Command Center v0.2.0"
+	@echo "Setting up authentication for Command Center v0.3.0"
 	@read -p "Enter username: " username; \
 	read -s -p "Enter password: " password; \
 	echo ""; \
@@ -26,7 +26,15 @@ setup-auth:
 
 # Run tests
 test:
+	go test ./...
+
+# Run tests with verbose output
+test-v:
 	go test -v ./...
+
+# Run tests with coverage
+test-cover:
+	go test ./... -cover
 
 # Clean build artifacts
 clean:
@@ -42,12 +50,14 @@ install-deps:
 
 # Create release package
 release: build
-	tar -czf command-center-v0.2.0.tar.gz \
+	tar -czf command-center-v0.3.0.tar.gz \
 		cc-server \
 		web/ \
 		migrations/ \
+		examples/ \
 		config.example.json \
-		README.md
+		README.md \
+		CLAUDE.md
 
 # Development - run with auto-reload (requires air)
 dev:
@@ -60,3 +70,17 @@ fmt:
 # Lint code
 lint:
 	golangci-lint run
+
+# Show help
+help:
+	@echo "Command Center v0.3.0 - Makefile Targets"
+	@echo ""
+	@echo "  make build       - Build release binary (linux/amd64)"
+	@echo "  make build-local - Build for current OS"
+	@echo "  make run         - Build and run server"
+	@echo "  make test        - Run all tests"
+	@echo "  make test-cover  - Run tests with coverage"
+	@echo "  make clean       - Remove build artifacts"
+	@echo "  make setup-auth  - Setup authentication"
+	@echo "  make release     - Create release tarball"
+	@echo "  make help        - Show this help"
