@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,6 +180,102 @@ func RunServerless(w http.ResponseWriter, r *http.Request, siteDir string, db *s
 		},
 	})
 
+	// Inject fetch function for HTTP requests
+	vm.Set("fetch", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return vm.ToValue(map[string]interface{}{
+				"error": "URL required",
+			})
+		}
+
+		fetchURL := call.Arguments[0].String()
+
+		// Parse and validate URL
+		parsedURL, err := url.Parse(fetchURL)
+		if err != nil {
+			return vm.ToValue(map[string]interface{}{
+				"error": "Invalid URL: " + err.Error(),
+			})
+		}
+
+		// SSRF protection: block localhost and internal IPs
+		host := parsedURL.Hostname()
+		if isInternalHost(host) {
+			return vm.ToValue(map[string]interface{}{
+				"error": "Blocked: internal/localhost URLs not allowed",
+			})
+		}
+
+		// Get options
+		method := "GET"
+		var reqBody io.Reader
+		headers := make(map[string]string)
+
+		if len(call.Arguments) > 1 {
+			opts := call.Arguments[1].Export()
+			if optsMap, ok := opts.(map[string]interface{}); ok {
+				if m, ok := optsMap["method"].(string); ok {
+					method = strings.ToUpper(m)
+				}
+				if h, ok := optsMap["headers"].(map[string]interface{}); ok {
+					for k, v := range h {
+						headers[fmt.Sprintf("%v", k)] = fmt.Sprintf("%v", v)
+					}
+				}
+				if body, ok := optsMap["body"].(string); ok {
+					reqBody = strings.NewReader(body)
+				}
+			}
+		}
+
+		// Create HTTP client with timeout
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+		}
+
+		req, err := http.NewRequest(method, fetchURL, reqBody)
+		if err != nil {
+			return vm.ToValue(map[string]interface{}{
+				"error": "Request error: " + err.Error(),
+			})
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return vm.ToValue(map[string]interface{}{
+				"error": "Fetch error: " + err.Error(),
+			})
+		}
+		defer resp.Body.Close()
+
+		// Limit response body to 1MB
+		limitedResp := io.LimitReader(resp.Body, 1<<20)
+		bodyBytes, err := io.ReadAll(limitedResp)
+		if err != nil {
+			return vm.ToValue(map[string]interface{}{
+				"error": "Read error: " + err.Error(),
+			})
+		}
+
+		// Build response headers
+		respHeaders := make(map[string]string)
+		for k, v := range resp.Header {
+			if len(v) > 0 {
+				respHeaders[k] = v[0]
+			}
+		}
+
+		return vm.ToValue(map[string]interface{}{
+			"status":  resp.StatusCode,
+			"headers": respHeaders,
+			"body":    string(bodyBytes),
+		})
+	})
+
 	// Run with timeout
 	done := make(chan error, 1)
 	go func() {
@@ -248,4 +346,32 @@ func HasServerless(siteDir string) bool {
 	mainJS := filepath.Join(siteDir, "main.js")
 	_, err := os.Stat(mainJS)
 	return err == nil
+}
+
+// isInternalHost checks if a host is localhost or an internal IP (SSRF protection)
+func isInternalHost(host string) bool {
+	// Check for localhost variations
+	host = strings.ToLower(host)
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return true
+	}
+
+	// Parse IP and check for internal ranges
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// Not an IP, try to resolve it
+		ips, err := net.LookupIP(host)
+		if err == nil && len(ips) > 0 {
+			ip = ips[0]
+		}
+	}
+
+	if ip != nil {
+		// Check for private/internal IP ranges
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return true
+		}
+	}
+
+	return false
 }

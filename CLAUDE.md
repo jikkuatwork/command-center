@@ -80,6 +80,10 @@ socket.broadcast(msg), socket.clients()
 
 // Logging
 console.log(...)
+
+// HTTP requests (synchronous, 5s timeout, 1MB limit, SSRF protected)
+const resp = fetch(url, { method: 'POST', headers: {}, body: '' });
+// resp.status, resp.body, resp.headers, resp.error
 ```
 
 ## Configuration
