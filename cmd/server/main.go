@@ -1,11 +1,15 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +40,21 @@ var (
 )
 
 func main() {
+	// Check for subcommands first
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "deploy":
+			runDeploy(os.Args[2:])
+			return
+		case "--version", "-version":
+			printVersion()
+			return
+		case "--help", "-help", "-h":
+			printHelp()
+			return
+		}
+	}
+
 	// Check for --version or --help before parsing other flags
 	for _, arg := range os.Args[1:] {
 		if arg == "--version" || arg == "-version" {
@@ -582,4 +601,201 @@ func serveSiteNotFound(w http.ResponseWriter, subdomain string) {
     </div>
 </body>
 </html>`, subdomain)
+}
+
+// runDeploy handles the "deploy" subcommand
+func runDeploy(args []string) {
+	// Parse deploy flags
+	deployFlags := flag.NewFlagSet("deploy", flag.ExitOnError)
+	serverURL := deployFlags.String("server", "http://localhost:4698", "Server URL")
+	tokenFlag := deployFlags.String("token", "", "API token (or read from ~/.cc-token)")
+
+	deployFlags.Usage = func() {
+		fmt.Println("Usage: cc-server deploy <site-name> [options]")
+		fmt.Println()
+		fmt.Println("Deploy the current directory to a site.")
+		fmt.Println()
+		fmt.Println("Options:")
+		deployFlags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  cc-server deploy my-site")
+		fmt.Println("  cc-server deploy my-site --server https://cc.example.com")
+		fmt.Println("  cc-server deploy my-site --token abc123")
+	}
+
+	if err := deployFlags.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Get site name
+	if deployFlags.NArg() < 1 {
+		fmt.Println("Error: site name required")
+		deployFlags.Usage()
+		os.Exit(1)
+	}
+	siteName := deployFlags.Arg(0)
+
+	// Get token
+	token := *tokenFlag
+	if token == "" {
+		// Try to read from ~/.cc-token
+		homeDir, _ := os.UserHomeDir()
+		tokenPath := filepath.Join(homeDir, ".cc-token")
+		if data, err := os.ReadFile(tokenPath); err == nil {
+			token = strings.TrimSpace(string(data))
+		}
+	}
+
+	if token == "" {
+		fmt.Println("Error: API token required. Use --token flag or create ~/.cc-token")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Deploying to %s as '%s'...\n", *serverURL, siteName)
+
+	// Create ZIP of current directory
+	zipBuffer, fileCount, err := createDeployZip(".")
+	if err != nil {
+		fmt.Printf("Error creating ZIP: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Zipped %d files (%d bytes)\n", fileCount, zipBuffer.Len())
+
+	// Create multipart form
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Add site_name field
+	if err := writer.WriteField("site_name", siteName); err != nil {
+		fmt.Printf("Error creating form: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add file
+	part, err := writer.CreateFormFile("file", "site.zip")
+	if err != nil {
+		fmt.Printf("Error creating form file: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := io.Copy(part, zipBuffer); err != nil {
+		fmt.Printf("Error writing zip to form: %v\n", err)
+		os.Exit(1)
+	}
+	writer.Close()
+
+	// Make request
+	req, err := http.NewRequest("POST", *serverURL+"/api/deploy", &body)
+	if err != nil {
+		fmt.Printf("Error creating request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Error sending request: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Printf("Error parsing response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if success, ok := result["success"].(bool); ok && success {
+		fmt.Println()
+		fmt.Println("✓ Deployment successful!")
+		fmt.Printf("  Site: %s\n", siteName)
+		if count, ok := result["file_count"].(float64); ok {
+			fmt.Printf("  Files: %d\n", int(count))
+		}
+		if size, ok := result["size_bytes"].(float64); ok {
+			fmt.Printf("  Size: %d bytes\n", int(size))
+		}
+		fmt.Printf("  URL: %s.localhost:4698\n", siteName)
+	} else {
+		fmt.Println()
+		fmt.Println("✗ Deployment failed!")
+		if errMsg, ok := result["error"].(string); ok {
+			fmt.Printf("  Error: %s\n", errMsg)
+		}
+		os.Exit(1)
+	}
+}
+
+// createDeployZip creates a ZIP archive of the directory
+func createDeployZip(dir string) (*bytes.Buffer, int, error) {
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+	fileCount := 0
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip hidden files and directories
+		if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+
+		// Create ZIP entry
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+		header.Method = zip.Deflate
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// Copy file contents
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		if err != nil {
+			return err
+		}
+
+		fileCount++
+		return nil
+	})
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		return nil, 0, err
+	}
+
+	return buf, fileCount, nil
 }
