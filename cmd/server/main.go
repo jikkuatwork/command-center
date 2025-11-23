@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/jikku/command-center/internal/config"
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/handlers"
+	"github.com/jikku/command-center/internal/hosting"
 	"github.com/jikku/command-center/internal/middleware"
 	"github.com/jikku/command-center/internal/security"
 )
@@ -124,6 +126,13 @@ func main() {
 	if err := audit.Init(database.GetDB()); err != nil {
 		log.Fatalf("Failed to initialize audit logging: %v", err)
 	}
+
+	// Initialize hosting system
+	configDir := filepath.Dir(cfg.Database.Path)
+	if err := hosting.Init(configDir); err != nil {
+		log.Fatalf("Failed to initialize hosting: %v", err)
+	}
+	log.Printf("Hosting initialized: %s", hosting.GetSitesDir())
 
 	// Generate mock data in development mode
 	if cfg.IsDevelopment() {
@@ -497,8 +506,55 @@ func extractSubdomain(host, mainDomain string) string {
 }
 
 // siteHandler handles requests for hosted sites
-// Currently returns 404 - will be implemented in Phase 3
+// Serves static files from ~/.config/cc/sites/{subdomain}/
 func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
+	// Check if site exists
+	if !hosting.SiteExists(subdomain) {
+		serveSiteNotFound(w, subdomain)
+		return
+	}
+
+	// Log analytics event for site visits
+	logSiteVisit(r, subdomain)
+
+	// Get the site directory
+	siteDir := hosting.GetSiteDir(subdomain)
+
+	// Create a file server for this site
+	fileServer := http.FileServer(http.Dir(siteDir))
+
+	// Serve the request
+	// Strip nothing since we're serving from root of site directory
+	fileServer.ServeHTTP(w, r)
+}
+
+// logSiteVisit logs an analytics event for a site visit
+func logSiteVisit(r *http.Request, subdomain string) {
+	db := database.GetDB()
+	if db == nil {
+		return
+	}
+
+	// Insert event into database
+	_, err := db.Exec(`
+		INSERT INTO events (domain, source_type, event_type, path, referrer, user_agent, ip_address, query_params)
+		VALUES (?, 'hosting', 'pageview', ?, ?, ?, ?, ?)
+	`,
+		subdomain,
+		r.URL.Path,
+		r.Referer(),
+		r.UserAgent(),
+		r.RemoteAddr,
+		r.URL.RawQuery,
+	)
+
+	if err != nil {
+		log.Printf("Failed to log site visit: %v", err)
+	}
+}
+
+// serveSiteNotFound renders the 404 page for non-existent sites
+func serveSiteNotFound(w http.ResponseWriter, subdomain string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
 	fmt.Fprintf(w, `<!DOCTYPE html>
