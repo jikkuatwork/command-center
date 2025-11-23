@@ -75,6 +75,8 @@ func runMigrations() error {
 		file    string
 	}{
 		{1, "initial_schema", "./migrations/001_initial.sql"},
+		{2, "paas_tables", "./migrations/002_paas.sql"},
+		{3, "env_vars", "./migrations/003_env_vars.sql"},
 	}
 
 	// Run each migration if not already applied

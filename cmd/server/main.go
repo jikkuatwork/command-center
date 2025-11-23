@@ -1,15 +1,22 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,11 +25,12 @@ import (
 	"github.com/jikku/command-center/internal/config"
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/handlers"
+	"github.com/jikku/command-center/internal/hosting"
 	"github.com/jikku/command-center/internal/middleware"
 	"github.com/jikku/command-center/internal/security"
 )
 
-const Version = "v0.2.0"
+const Version = "v0.3.0"
 
 var (
 	showVersion = flag.Bool("version", false, "Show version and exit")
@@ -32,6 +40,24 @@ var (
 )
 
 func main() {
+	// Check for subcommands first
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "deploy":
+			runDeploy(os.Args[2:])
+			return
+		case "sites":
+			runSites(os.Args[2:])
+			return
+		case "--version", "-version":
+			printVersion()
+			return
+		case "--help", "-help", "-h":
+			printHelp()
+			return
+		}
+	}
+
 	// Check for --version or --help before parsing other flags
 	for _, arg := range os.Args[1:] {
 		if arg == "--version" || arg == "-version" {
@@ -74,7 +100,7 @@ func main() {
 	// Display startup information
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	fmt.Println("           Command Center v0.2.0 - Starting Up")
+	fmt.Println("           Command Center v0.3.0 - Starting Up")
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  Environment:  %s\n", cfg.Server.Env)
@@ -123,6 +149,13 @@ func main() {
 		log.Fatalf("Failed to initialize audit logging: %v", err)
 	}
 
+	// Initialize hosting system
+	configDir := filepath.Dir(cfg.Database.Path)
+	if err := hosting.Init(configDir); err != nil {
+		log.Fatalf("Failed to initialize hosting: %v", err)
+	}
+	log.Printf("Hosting initialized: %s", hosting.GetSitesDir())
+
 	// Generate mock data in development mode
 	if cfg.IsDevelopment() {
 		log.Println("Development mode: Checking for existing data...")
@@ -140,50 +173,49 @@ func main() {
 		}
 	}
 
-	// Create router
-	mux := http.NewServeMux()
-
-	// Apply middleware (order: logging -> security -> auth -> cors -> recovery -> mux)
-	handler := loggingMiddleware(
-		middleware.SecurityHeaders(
-			middleware.AuthMiddleware(sessionStore)(
-				corsMiddleware(
-					recoveryMiddleware(mux),
-				),
-			),
-		),
-	)
+	// Create dashboard router (existing dashboard functionality)
+	dashboardMux := http.NewServeMux()
 
 	// Authentication routes
-	mux.HandleFunc("/login", handlers.LoginPageHandler)
-	mux.HandleFunc("/api/login", handlers.LoginHandler)
-	mux.HandleFunc("/api/logout", handlers.LogoutHandler)
-	mux.HandleFunc("/api/auth/status", handlers.AuthStatusHandler)
+	dashboardMux.HandleFunc("/login", handlers.LoginPageHandler)
+	dashboardMux.HandleFunc("/api/login", handlers.LoginHandler)
+	dashboardMux.HandleFunc("/api/logout", handlers.LogoutHandler)
+	dashboardMux.HandleFunc("/api/auth/status", handlers.AuthStatusHandler)
 
 	// API routes - Tracking
-	mux.HandleFunc("/track", handlers.TrackHandler)
-	mux.HandleFunc("/pixel.gif", handlers.PixelHandler)
-	mux.HandleFunc("/r/", handlers.RedirectHandler)
-	mux.HandleFunc("/webhook/", handlers.WebhookHandler)
+	dashboardMux.HandleFunc("/track", handlers.TrackHandler)
+	dashboardMux.HandleFunc("/pixel.gif", handlers.PixelHandler)
+	dashboardMux.HandleFunc("/r/", handlers.RedirectHandler)
+	dashboardMux.HandleFunc("/webhook/", handlers.WebhookHandler)
 
 	// API routes - Dashboard
-	mux.HandleFunc("/api/stats", handlers.StatsHandler)
-	mux.HandleFunc("/api/events", handlers.EventsHandler)
-	mux.HandleFunc("/api/redirects", handlers.RedirectsHandler)
-	mux.HandleFunc("/api/domains", handlers.DomainsHandler)
-	mux.HandleFunc("/api/tags", handlers.TagsHandler)
-	mux.HandleFunc("/api/webhooks", handlers.WebhooksHandler)
-	mux.HandleFunc("/api/config", handlers.ConfigHandler)
+	dashboardMux.HandleFunc("/api/stats", handlers.StatsHandler)
+	dashboardMux.HandleFunc("/api/events", handlers.EventsHandler)
+	dashboardMux.HandleFunc("/api/redirects", handlers.RedirectsHandler)
+	dashboardMux.HandleFunc("/api/domains", handlers.DomainsHandler)
+	dashboardMux.HandleFunc("/api/tags", handlers.TagsHandler)
+	dashboardMux.HandleFunc("/api/webhooks", handlers.WebhooksHandler)
+	dashboardMux.HandleFunc("/api/config", handlers.ConfigHandler)
+
+	// API routes - Hosting/Deploy
+	dashboardMux.HandleFunc("/api/deploy", handlers.DeployHandler)
+	dashboardMux.HandleFunc("/api/sites", handlers.SitesHandler)
+	dashboardMux.HandleFunc("/api/keys", handlers.APIKeysHandler)
+	dashboardMux.HandleFunc("/api/deployments", handlers.DeploymentsHandler)
+	dashboardMux.HandleFunc("/api/envvars", handlers.EnvVarsHandler)
+
+	// Hosting management page
+	dashboardMux.HandleFunc("/hosting", handlers.HostingPageHandler)
 
 	// Static files
 	fs := http.FileServer(http.Dir("./web/static"))
-	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+	dashboardMux.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	// Dashboard (root)
-	mux.HandleFunc("/", handlers.DashboardHandler)
+	dashboardMux.HandleFunc("/", handlers.DashboardHandler)
 
-	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health check (available on both dashboard and sites)
+	dashboardMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := database.HealthCheck(); err != nil {
 			http.Error(w, "Database unhealthy", http.StatusServiceUnavailable)
 			return
@@ -191,6 +223,22 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+
+	// Create the root handler with host-based routing
+	rootHandler := createRootHandler(cfg, dashboardMux, sessionStore)
+
+	// Apply middleware (order: tracing -> logging -> body limit -> security -> cors -> recovery -> root)
+	handler := middleware.RequestTracing(
+		loggingMiddleware(
+			middleware.BodySizeLimit(middleware.MaxBodySize)(
+				middleware.SecurityHeaders(
+					corsMiddleware(
+						recoveryMiddleware(rootHandler),
+					),
+				),
+			),
+		),
+	)
 
 	// Create server
 	srv := &http.Server{
@@ -239,7 +287,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, wrapped.statusCode, duration)
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID != "" {
+			log.Printf("[%s] %s %s %d %v", requestID, r.Method, r.URL.Path, wrapped.statusCode, duration)
+		} else {
+			log.Printf("%s %s %d %v", r.Method, r.URL.Path, wrapped.statusCode, duration)
+		}
 	})
 }
 
@@ -360,7 +413,7 @@ func printVersion() {
 
 // printHelp displays usage information
 func printHelp() {
-	fmt.Println("Command Center v0.2.0 - Universal Tracking & Analytics Server")
+	fmt.Println("Command Center v0.3.0 - Analytics & Personal Cloud")
 	fmt.Println()
 	fmt.Println("USAGE:")
 	fmt.Println("  cc-server [flags]")
@@ -394,4 +447,497 @@ func printHelp() {
 	fmt.Println("  cc-server --port 8080")
 	fmt.Println()
 	fmt.Println("For more information, visit: https://github.com/jikkuatwork/command-center")
+}
+
+// createRootHandler creates a handler that routes based on the Host header
+// - Requests to the main domain (or localhost) go to the dashboard
+// - Requests to subdomains (*.domain.com or *.localhost) go to the site handler
+func createRootHandler(cfg *config.Config, dashboardMux *http.ServeMux, sessionStore *auth.SessionStore) http.Handler {
+	// Parse the main domain from config
+	mainDomain := extractDomain(cfg.Server.Domain)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+
+		// Remove port from host if present
+		if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+			// Check if this is IPv6 (has brackets)
+			if !strings.Contains(host, "]") || strings.LastIndex(host, "]") < colonIdx {
+				host = host[:colonIdx]
+			}
+		}
+
+		// Check if this is the main domain or localhost (no subdomain)
+		if isDashboardHost(host, mainDomain, cfg.Server.Port) {
+			// Apply auth middleware only to dashboard routes
+			middleware.AuthMiddleware(sessionStore)(dashboardMux).ServeHTTP(w, r)
+			return
+		}
+
+		// Extract subdomain and serve the site
+		subdomain := extractSubdomain(host, mainDomain)
+		if subdomain != "" {
+			siteHandler(w, r, subdomain)
+			return
+		}
+
+		// Fallback to dashboard
+		middleware.AuthMiddleware(sessionStore)(dashboardMux).ServeHTTP(w, r)
+	})
+}
+
+// extractDomain extracts the domain from a URL (removes protocol and path)
+func extractDomain(rawURL string) string {
+	// Handle URLs with protocol
+	if strings.Contains(rawURL, "://") {
+		if parsed, err := url.Parse(rawURL); err == nil {
+			return parsed.Hostname()
+		}
+	}
+	// Handle bare domains
+	if colonIdx := strings.Index(rawURL, ":"); colonIdx != -1 {
+		return rawURL[:colonIdx]
+	}
+	return rawURL
+}
+
+// isDashboardHost checks if the host should be routed to the dashboard
+func isDashboardHost(host, mainDomain, port string) bool {
+	// Exact match with main domain
+	if host == mainDomain {
+		return true
+	}
+
+	// localhost without subdomain
+	if host == "localhost" || host == "127.0.0.1" {
+		return true
+	}
+
+	return false
+}
+
+// extractSubdomain extracts the subdomain from a host
+// e.g., "blog.example.com" with mainDomain "example.com" returns "blog"
+// e.g., "blog.localhost" returns "blog"
+func extractSubdomain(host, mainDomain string) string {
+	host = strings.ToLower(host)
+	mainDomain = strings.ToLower(mainDomain)
+
+	// Handle *.localhost pattern
+	if strings.HasSuffix(host, ".localhost") {
+		return strings.TrimSuffix(host, ".localhost")
+	}
+
+	// Handle *.127.0.0.1 pattern (rare but possible)
+	if strings.HasSuffix(host, ".127.0.0.1") {
+		return strings.TrimSuffix(host, ".127.0.0.1")
+	}
+
+	// Handle *.mainDomain pattern
+	suffix := "." + mainDomain
+	if strings.HasSuffix(host, suffix) {
+		subdomain := strings.TrimSuffix(host, suffix)
+		// Don't return empty subdomain or subdomain with dots (nested subdomains)
+		if subdomain != "" && !strings.Contains(subdomain, ".") {
+			return subdomain
+		}
+	}
+
+	return ""
+}
+
+// siteHandler handles requests for hosted sites
+// Serves static files from ~/.config/cc/sites/{subdomain}/
+// If main.js exists, executes serverless JavaScript instead
+// WebSocket connections at /ws are handled by the WebSocket hub
+func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
+	// Check if site exists
+	if !hosting.SiteExists(subdomain) {
+		serveSiteNotFound(w, subdomain)
+		return
+	}
+
+	// Handle WebSocket connections at /ws
+	if r.URL.Path == "/ws" {
+		hosting.HandleWebSocket(w, r, subdomain)
+		return
+	}
+
+	// Log analytics event for site visits
+	logSiteVisit(r, subdomain)
+
+	// Get the site directory
+	siteDir := hosting.GetSiteDir(subdomain)
+
+	// Check for serverless (main.js)
+	if hosting.HasServerless(siteDir) {
+		db := database.GetDB()
+		if hosting.RunServerless(w, r, siteDir, db, subdomain) {
+			return // Serverless handled the request
+		}
+	}
+
+	// Create a secure file server for this site (prevents path traversal)
+	fileServer := hosting.NewSecureFileServer(siteDir)
+
+	// Serve the request
+	// Strip nothing since we're serving from root of site directory
+	fileServer.ServeHTTP(w, r)
+}
+
+// logSiteVisit logs an analytics event for a site visit
+func logSiteVisit(r *http.Request, subdomain string) {
+	db := database.GetDB()
+	if db == nil {
+		return
+	}
+
+	// Insert event into database
+	_, err := db.Exec(`
+		INSERT INTO events (domain, source_type, event_type, path, referrer, user_agent, ip_address, query_params)
+		VALUES (?, 'hosting', 'pageview', ?, ?, ?, ?, ?)
+	`,
+		subdomain,
+		r.URL.Path,
+		r.Referer(),
+		r.UserAgent(),
+		r.RemoteAddr,
+		r.URL.RawQuery,
+	)
+
+	if err != nil {
+		log.Printf("Failed to log site visit: %v", err)
+	}
+}
+
+// serveSiteNotFound renders the 404 page for non-existent sites
+func serveSiteNotFound(w http.ResponseWriter, subdomain string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+    <title>Site Not Found</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               display: flex; justify-content: center; align-items: center;
+               height: 100vh; margin: 0; background: #f5f5f5; }
+        .container { text-align: center; padding: 40px; background: white;
+                     border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 10px; }
+        p { color: #666; }
+        .subdomain { font-family: monospace; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>404 - Site Not Found</h1>
+        <p>The site <span class="subdomain">%s</span> does not exist.</p>
+    </div>
+</body>
+</html>`, subdomain)
+}
+
+// runDeploy handles the "deploy" subcommand
+func runDeploy(args []string) {
+	// Parse deploy flags
+	deployFlags := flag.NewFlagSet("deploy", flag.ExitOnError)
+	serverURL := deployFlags.String("server", "http://localhost:4698", "Server URL")
+	tokenFlag := deployFlags.String("token", "", "API token (or read from ~/.cc-token)")
+
+	deployFlags.Usage = func() {
+		fmt.Println("Usage: cc-server deploy <site-name> [options]")
+		fmt.Println()
+		fmt.Println("Deploy the current directory to a site.")
+		fmt.Println()
+		fmt.Println("Options:")
+		deployFlags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  cc-server deploy my-site")
+		fmt.Println("  cc-server deploy my-site --server https://cc.example.com")
+		fmt.Println("  cc-server deploy my-site --token abc123")
+	}
+
+	if err := deployFlags.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Get site name
+	if deployFlags.NArg() < 1 {
+		fmt.Println("Error: site name required")
+		deployFlags.Usage()
+		os.Exit(1)
+	}
+	siteName := deployFlags.Arg(0)
+
+	// Get token
+	token := *tokenFlag
+	if token == "" {
+		// Try to read from ~/.cc-token
+		homeDir, _ := os.UserHomeDir()
+		tokenPath := filepath.Join(homeDir, ".cc-token")
+		if data, err := os.ReadFile(tokenPath); err == nil {
+			token = strings.TrimSpace(string(data))
+		}
+	}
+
+	if token == "" {
+		fmt.Println("Error: API token required. Use --token flag or create ~/.cc-token")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Deploying to %s as '%s'...\n", *serverURL, siteName)
+
+	// Create ZIP of current directory
+	zipBuffer, fileCount, err := createDeployZip(".")
+	if err != nil {
+		fmt.Printf("Error creating ZIP: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Zipped %d files (%d bytes)\n", fileCount, zipBuffer.Len())
+
+	// Create multipart form
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Add site_name field
+	if err := writer.WriteField("site_name", siteName); err != nil {
+		fmt.Printf("Error creating form: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add file
+	part, err := writer.CreateFormFile("file", "site.zip")
+	if err != nil {
+		fmt.Printf("Error creating form file: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := io.Copy(part, zipBuffer); err != nil {
+		fmt.Printf("Error writing zip to form: %v\n", err)
+		os.Exit(1)
+	}
+	writer.Close()
+
+	// Make request
+	req, err := http.NewRequest("POST", *serverURL+"/api/deploy", &body)
+	if err != nil {
+		fmt.Printf("Error creating request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Error sending request: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Printf("Error parsing response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if success, ok := result["success"].(bool); ok && success {
+		fmt.Println()
+		fmt.Println("✓ Deployment successful!")
+		fmt.Printf("  Site: %s\n", siteName)
+		if count, ok := result["file_count"].(float64); ok {
+			fmt.Printf("  Files: %d\n", int(count))
+		}
+		if size, ok := result["size_bytes"].(float64); ok {
+			fmt.Printf("  Size: %d bytes\n", int(size))
+		}
+		fmt.Printf("  URL: %s.localhost:4698\n", siteName)
+	} else {
+		fmt.Println()
+		fmt.Println("✗ Deployment failed!")
+		if errMsg, ok := result["error"].(string); ok {
+			fmt.Printf("  Error: %s\n", errMsg)
+		}
+		os.Exit(1)
+	}
+}
+
+// createDeployZip creates a ZIP archive of the directory
+func createDeployZip(dir string) (*bytes.Buffer, int, error) {
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+	fileCount := 0
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip hidden files and directories
+		if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+
+		// Create ZIP entry
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+		header.Method = zip.Deflate
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// Copy file contents
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		if err != nil {
+			return err
+		}
+
+		fileCount++
+		return nil
+	})
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		return nil, 0, err
+	}
+
+	return buf, fileCount, nil
+}
+
+// runSites handles the "sites" subcommand
+func runSites(args []string) {
+	// Initialize hosting to get sites directory
+	homeDir, _ := os.UserHomeDir()
+	configDir := filepath.Join(homeDir, ".config", "cc")
+	if err := hosting.Init(configDir); err != nil {
+		fmt.Printf("Error initializing hosting: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Handle subcommands
+	if len(args) == 0 {
+		listSites()
+		return
+	}
+
+	switch args[0] {
+	case "list", "ls":
+		listSites()
+	case "delete", "rm":
+		if len(args) < 2 {
+			fmt.Println("Error: site name required")
+			fmt.Println("Usage: cc-server sites delete <site-name>")
+			os.Exit(1)
+		}
+		deleteSite(args[1])
+	case "help":
+		fmt.Println("Usage: cc-server sites [command]")
+		fmt.Println()
+		fmt.Println("Commands:")
+		fmt.Println("  list, ls        List all deployed sites")
+		fmt.Println("  delete, rm      Delete a site")
+		fmt.Println("  help            Show this help")
+	default:
+		fmt.Printf("Unknown command: %s\n", args[0])
+		fmt.Println("Run 'cc-server sites help' for usage")
+		os.Exit(1)
+	}
+}
+
+// listSites displays all deployed sites
+func listSites() {
+	sites, err := hosting.ListSites()
+	if err != nil {
+		fmt.Printf("Error listing sites: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(sites) == 0 {
+		fmt.Println("No sites deployed yet.")
+		fmt.Println()
+		fmt.Println("Deploy a site:")
+		fmt.Println("  cd /path/to/site && cc-server deploy my-site --token <api-token>")
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("%-20s %-8s %-12s %s\n", "SITE", "FILES", "SIZE", "URL")
+	fmt.Printf("%-20s %-8s %-12s %s\n", "----", "-----", "----", "---")
+
+	for _, site := range sites {
+		size := formatSize(site.SizeBytes)
+		url := fmt.Sprintf("http://%s.localhost:4698", site.Name)
+		fmt.Printf("%-20s %-8d %-12s %s\n", site.Name, site.FileCount, size, url)
+	}
+	fmt.Println()
+}
+
+// deleteSite removes a deployed site
+func deleteSite(name string) {
+	if !hosting.SiteExists(name) {
+		fmt.Printf("Site '%s' does not exist\n", name)
+		os.Exit(1)
+	}
+
+	// Confirm deletion
+	fmt.Printf("Are you sure you want to delete '%s'? [y/N]: ", name)
+	var confirm string
+	fmt.Scanln(&confirm)
+
+	if strings.ToLower(confirm) != "y" && strings.ToLower(confirm) != "yes" {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	if err := hosting.DeleteSite(name); err != nil {
+		fmt.Printf("Error deleting site: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Site '%s' deleted successfully\n", name)
+}
+
+// formatSize formats bytes to human readable format
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

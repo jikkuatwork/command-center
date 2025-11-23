@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Command Center - Hosting</title>
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <link href="/static/css/custom.css" rel="stylesheet">
+</head>
+<body>
+  <div class="page">
+    <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+      <div class="container-fluid">
+        <h1 class="navbar-brand navbar-brand-autodark">
+          <a href="/"><span class="navbar-brand-text">Command Center</span></a>
+        </h1>
+        <div class="collapse navbar-collapse" id="sidebar-menu">
+          <ul class="navbar-nav pt-lg-3">
+            <li class="nav-item"><a class="nav-link" href="/"><i class="ti ti-home me-2"></i>Dashboard</a></li>
+            <li class="nav-item active"><a class="nav-link" href="/hosting"><i class="ti ti-cloud me-2"></i>Hosting</a></li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <div class="page-wrapper">
+      <div class="page-header d-print-none">
+        <div class="container-xl">
+          <div class="page-pretitle">Personal Cloud</div>
+          <h2 class="page-title">Hosting Management</h2>
+        </div>
+      </div>
+
+      <div class="page-body">
+        <div class="container-xl">
+          <!-- Sites Section -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h3 class="card-title"><i class="ti ti-world me-2"></i>Hosted Sites</h3>
+            </div>
+            <div class="card-body">
+              <div id="sites-list">Loading...</div>
+            </div>
+          </div>
+
+          <!-- API Keys Section -->
+          <div class="card mb-4">
+            <div class="card-header">
+              <h3 class="card-title"><i class="ti ti-key me-2"></i>Deploy Keys</h3>
+              <div class="card-actions">
+                <button class="btn btn-primary" onclick="showNewKeyModal()">
+                  <i class="ti ti-plus me-1"></i>Generate Key
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="keys-list">Loading...</div>
+            </div>
+          </div>
+
+          <!-- Recent Deployments -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title"><i class="ti ti-rocket me-2"></i>Recent Deployments</h3>
+            </div>
+            <div class="card-body">
+              <div id="deployments-list">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Key Modal -->
+  <div class="modal" id="new-key-modal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Generate New API Key</h5>
+          <button type="button" class="btn-close" onclick="closeModal()"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Key Name</label>
+            <input type="text" class="form-control" id="key-name" placeholder="e.g., Mike's Laptop">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="createKey()">Generate</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Token Display Modal -->
+  <div class="modal" id="token-modal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Your New API Key</h5>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning">
+            <i class="ti ti-alert-triangle me-2"></i>
+            Copy this token now! It won't be shown again.
+          </div>
+          <div class="mb-3">
+            <code id="token-display" class="d-block p-3 bg-dark text-light rounded" style="word-break:break-all;"></code>
+          </div>
+          <button class="btn btn-outline-primary w-100" onclick="copyToken()">
+            <i class="ti ti-copy me-1"></i>Copy to Clipboard
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" onclick="closeTokenModal()">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/js/tabler.min.js"></script>
+  <script>
+    async function loadSites() {
+      try {
+        const res = await fetch('/api/sites');
+        const data = await res.json();
+        const container = document.getElementById('sites-list');
+
+        if (!data.sites || data.sites.length === 0) {
+          container.innerHTML = '<p class="text-muted">No sites deployed yet.</p>';
+          return;
+        }
+
+        let html = '<div class="table-responsive"><table class="table table-vcenter">';
+        html += '<thead><tr><th>Site</th><th>Files</th><th>Size</th><th>URL</th></tr></thead><tbody>';
+        data.sites.forEach(site => {
+          const size = site.SizeBytes > 1024 ? (site.SizeBytes/1024).toFixed(1) + ' KB' : site.SizeBytes + ' B';
+          html += `<tr>
+            <td><strong>${site.Name}</strong></td>
+            <td>${site.FileCount}</td>
+            <td>${size}</td>
+            <td><a href="http://${site.Name}.localhost:4698" target="_blank">${site.Name}.localhost</a></td>
+          </tr>`;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } catch(e) {
+        document.getElementById('sites-list').innerHTML = '<p class="text-danger">Error loading sites</p>';
+      }
+    }
+
+    async function loadKeys() {
+      try {
+        const res = await fetch('/api/keys');
+        const data = await res.json();
+        const container = document.getElementById('keys-list');
+
+        if (!data.keys || data.keys.length === 0) {
+          container.innerHTML = '<p class="text-muted">No API keys created yet.</p>';
+          return;
+        }
+
+        let html = '<div class="table-responsive"><table class="table table-vcenter">';
+        html += '<thead><tr><th>Name</th><th>Created</th><th>Last Used</th><th></th></tr></thead><tbody>';
+        data.keys.forEach(key => {
+          const lastUsed = key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : 'Never';
+          html += `<tr>
+            <td><strong>${key.name}</strong></td>
+            <td>${new Date(key.created_at).toLocaleDateString()}</td>
+            <td>${lastUsed}</td>
+            <td><button class="btn btn-sm btn-outline-danger" onclick="revokeKey(${key.id})">Revoke</button></td>
+          </tr>`;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } catch(e) {
+        document.getElementById('keys-list').innerHTML = '<p class="text-danger">Error loading keys</p>';
+      }
+    }
+
+    async function loadDeployments() {
+      try {
+        const res = await fetch('/api/deployments');
+        const data = await res.json();
+        const container = document.getElementById('deployments-list');
+
+        if (!data.deployments || data.deployments.length === 0) {
+          container.innerHTML = '<p class="text-muted">No deployments yet.</p>';
+          return;
+        }
+
+        let html = '<div class="table-responsive"><table class="table table-vcenter">';
+        html += '<thead><tr><th>Site</th><th>Files</th><th>By</th><th>Date</th></tr></thead><tbody>';
+        data.deployments.slice(0, 10).forEach(dep => {
+          html += `<tr>
+            <td><strong>${dep.site_id}</strong></td>
+            <td>${dep.file_count} files</td>
+            <td>${dep.deployed_by}</td>
+            <td>${new Date(dep.created_at).toLocaleString()}</td>
+          </tr>`;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } catch(e) {
+        document.getElementById('deployments-list').innerHTML = '<p class="text-danger">Error loading deployments</p>';
+      }
+    }
+
+    function showNewKeyModal() {
+      document.getElementById('new-key-modal').classList.add('show');
+      document.getElementById('new-key-modal').style.display = 'block';
+    }
+
+    function closeModal() {
+      document.getElementById('new-key-modal').classList.remove('show');
+      document.getElementById('new-key-modal').style.display = 'none';
+    }
+
+    function closeTokenModal() {
+      document.getElementById('token-modal').classList.remove('show');
+      document.getElementById('token-modal').style.display = 'none';
+      loadKeys();
+    }
+
+    async function createKey() {
+      const name = document.getElementById('key-name').value;
+      if (!name) { alert('Please enter a name'); return; }
+
+      try {
+        const res = await fetch('/api/keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, scopes: '["deploy:*"]' })
+        });
+        const data = await res.json();
+
+        closeModal();
+        document.getElementById('key-name').value = '';
+
+        if (data.token) {
+          document.getElementById('token-display').textContent = data.token;
+          document.getElementById('token-modal').classList.add('show');
+          document.getElementById('token-modal').style.display = 'block';
+        }
+      } catch(e) {
+        alert('Error creating key');
+      }
+    }
+
+    function copyToken() {
+      const token = document.getElementById('token-display').textContent;
+      navigator.clipboard.writeText(token);
+      alert('Token copied!');
+    }
+
+    async function revokeKey(id) {
+      if (!confirm('Revoke this API key?')) return;
+      try {
+        await fetch('/api/keys?id=' + id, { method: 'DELETE' });
+        loadKeys();
+      } catch(e) {
+        alert('Error revoking key');
+      }
+    }
+
+    // Load data on page load
+    loadSites();
+    loadKeys();
+    loadDeployments();
+  </script>
+</body>
+</html>
