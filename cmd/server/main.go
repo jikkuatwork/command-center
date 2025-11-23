@@ -199,6 +199,7 @@ func main() {
 	dashboardMux.HandleFunc("/api/sites", handlers.SitesHandler)
 	dashboardMux.HandleFunc("/api/keys", handlers.APIKeysHandler)
 	dashboardMux.HandleFunc("/api/deployments", handlers.DeploymentsHandler)
+	dashboardMux.HandleFunc("/api/envvars", handlers.EnvVarsHandler)
 
 	// Hosting management page
 	dashboardMux.HandleFunc("/hosting", handlers.HostingPageHandler)

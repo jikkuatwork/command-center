@@ -94,6 +94,26 @@ func RunServerless(w http.ResponseWriter, r *http.Request, siteDir string, db *s
 		},
 	})
 
+	// Load environment variables for this site
+	envVars := make(map[string]interface{})
+	if db != nil {
+		rows, err := db.Query("SELECT name, value FROM env_vars WHERE site_id = ?", siteID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var name, value string
+				if rows.Scan(&name, &value) == nil {
+					envVars[name] = value
+				}
+			}
+		}
+	}
+
+	// Inject process.env
+	vm.Set("process", map[string]interface{}{
+		"env": envVars,
+	})
+
 	// Inject db object for KV store
 	vm.Set("db", map[string]interface{}{
 		"get": func(call goja.FunctionCall) goja.Value {

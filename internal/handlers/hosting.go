@@ -112,6 +112,71 @@ func APIKeysHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// EnvVarsHandler handles environment variables CRUD
+func EnvVarsHandler(w http.ResponseWriter, r *http.Request) {
+	db := database.GetDB()
+	siteID := r.URL.Query().Get("site_id")
+
+	switch r.Method {
+	case http.MethodGet:
+		if siteID == "" {
+			jsonError(w, "site_id required", http.StatusBadRequest)
+			return
+		}
+		rows, err := db.Query("SELECT id, name FROM env_vars WHERE site_id = ?", siteID)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		var vars []map[string]interface{}
+		for rows.Next() {
+			var id int64
+			var name string
+			if rows.Scan(&id, &name) == nil {
+				vars = append(vars, map[string]interface{}{"id": id, "name": name})
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "vars": vars})
+
+	case http.MethodPost:
+		var req struct {
+			SiteID string `json:"site_id"`
+			Name   string `json:"name"`
+			Value  string `json:"value"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		_, err := db.Exec(`
+			INSERT INTO env_vars (site_id, name, value) VALUES (?, ?, ?)
+			ON CONFLICT(site_id, name) DO UPDATE SET value = ?
+		`, req.SiteID, req.Name, req.Value, req.Value)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			jsonError(w, "id required", http.StatusBadRequest)
+			return
+		}
+		id, _ := strconv.ParseInt(idStr, 10, 64)
+		db.Exec("DELETE FROM env_vars WHERE id = ?", id)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // DeploymentsHandler returns recent deployments
 func DeploymentsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
