@@ -3,11 +3,51 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/hosting"
 )
+
+// validEnvVarName validates environment variable names
+var validEnvVarName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// dangerousEnvVars are system env vars that should not be set by users
+var dangerousEnvVars = map[string]bool{
+	"PATH": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
+	"HOME": true, "USER": true, "SHELL": true, "PWD": true,
+	"TERM": true, "LANG": true, "LC_ALL": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
+	"NODE_OPTIONS": true, "NODE_PATH": true,
+}
+
+// validateEnvVarName checks if an env var name is safe to use
+func validateEnvVarName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return &validationError{"environment variable name cannot be empty"}
+	}
+	if len(name) > 128 {
+		return &validationError{"environment variable name too long (max 128 chars)"}
+	}
+	if !validEnvVarName.MatchString(name) {
+		return &validationError{"environment variable name must be uppercase letters, numbers, and underscores, starting with a letter"}
+	}
+	if dangerousEnvVars[name] {
+		return &validationError{"cannot set reserved system environment variable: " + name}
+	}
+	return nil
+}
+
+type validationError struct {
+	msg string
+}
+
+func (e *validationError) Error() string {
+	return e.msg
+}
 
 // HostingPageHandler serves the hosting management page
 func HostingPageHandler(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +188,16 @@ func EnvVarsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		// Validate site_id
+		if req.SiteID == "" {
+			jsonError(w, "site_id is required", http.StatusBadRequest)
+			return
+		}
+		// Validate environment variable name
+		if err := validateEnvVarName(req.Name); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		_, err := db.Exec(`

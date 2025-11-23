@@ -227,11 +227,15 @@ func main() {
 	// Create the root handler with host-based routing
 	rootHandler := createRootHandler(cfg, dashboardMux, sessionStore)
 
-	// Apply middleware (order: logging -> security -> auth -> cors -> recovery -> root)
-	handler := loggingMiddleware(
-		middleware.SecurityHeaders(
-			corsMiddleware(
-				recoveryMiddleware(rootHandler),
+	// Apply middleware (order: tracing -> logging -> body limit -> security -> cors -> recovery -> root)
+	handler := middleware.RequestTracing(
+		loggingMiddleware(
+			middleware.BodySizeLimit(middleware.MaxBodySize)(
+				middleware.SecurityHeaders(
+					corsMiddleware(
+						recoveryMiddleware(rootHandler),
+					),
+				),
 			),
 		),
 	)
@@ -283,7 +287,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, wrapped.statusCode, duration)
+		requestID := r.Header.Get("X-Request-ID")
+		if requestID != "" {
+			log.Printf("[%s] %s %s %d %v", requestID, r.Method, r.URL.Path, wrapped.statusCode, duration)
+		} else {
+			log.Printf("%s %s %d %v", r.Method, r.URL.Path, wrapped.statusCode, duration)
+		}
 	})
 }
 

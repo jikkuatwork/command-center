@@ -167,5 +167,8 @@ func DeleteSite(subdomain string) error {
 		return fmt.Errorf("invalid site path: directory traversal detected")
 	}
 
+	// Clean up WebSocket hub for this site (prevents goroutine leak)
+	RemoveHub(subdomain)
+
 	return os.RemoveAll(absPath)
 }

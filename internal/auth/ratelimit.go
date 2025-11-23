@@ -117,16 +117,19 @@ type DeployLimiter struct {
 	mu      sync.RWMutex
 }
 
-var deployLimiter *DeployLimiter
+var (
+	deployLimiter     *DeployLimiter
+	deployLimiterOnce sync.Once
+)
 
-// GetDeployLimiter returns the singleton deploy limiter
+// GetDeployLimiter returns the singleton deploy limiter (thread-safe)
 func GetDeployLimiter() *DeployLimiter {
-	if deployLimiter == nil {
+	deployLimiterOnce.Do(func() {
 		deployLimiter = &DeployLimiter{
 			deploys: make(map[string][]time.Time),
 		}
 		go deployLimiter.cleanup()
-	}
+	})
 	return deployLimiter
 }
 

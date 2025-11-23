@@ -3,17 +3,41 @@ package hosting
 import (
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
+// checkOrigin validates WebSocket origin against allowed patterns
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // Allow connections without Origin header (non-browser clients)
+	}
+
+	// Allow localhost for development
+	if strings.Contains(origin, "localhost") || strings.Contains(origin, "127.0.0.1") {
+		return true
+	}
+
+	// Allow same-host connections
+	host := r.Host
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+	if strings.Contains(origin, host) {
+		return true
+	}
+
+	log.Printf("[WS] Rejected origin: %s (host: %s)", origin, r.Host)
+	return false
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for simplicity
-	},
+	CheckOrigin:     checkOrigin,
 }
 
 // SiteHub manages WebSocket connections for a single site
@@ -23,6 +47,7 @@ type SiteHub struct {
 	broadcast  chan []byte
 	register   chan *websocket.Conn
 	unregister chan *websocket.Conn
+	done       chan struct{}
 	mu         sync.RWMutex
 }
 
@@ -51,6 +76,7 @@ func GetHub(siteID string) *SiteHub {
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *websocket.Conn),
 		unregister: make(chan *websocket.Conn),
+		done:       make(chan struct{}),
 	}
 
 	hubManager.hubs[siteID] = hub
@@ -59,10 +85,33 @@ func GetHub(siteID string) *SiteHub {
 	return hub
 }
 
+// RemoveHub stops and removes a hub for a site (call when site is deleted)
+func RemoveHub(siteID string) {
+	hubManager.mu.Lock()
+	defer hubManager.mu.Unlock()
+
+	if hub, exists := hubManager.hubs[siteID]; exists {
+		hub.Stop()
+		delete(hubManager.hubs, siteID)
+		log.Printf("[WS:%s] Hub removed", siteID)
+	}
+}
+
 // run handles the hub's event loop
 func (h *SiteHub) run() {
 	for {
 		select {
+		case <-h.done:
+			// Shutdown: close all client connections
+			h.mu.Lock()
+			for conn := range h.clients {
+				conn.Close()
+				delete(h.clients, conn)
+			}
+			h.mu.Unlock()
+			log.Printf("[WS:%s] Hub shutdown complete", h.siteID)
+			return
+
 		case conn := <-h.register:
 			h.mu.Lock()
 			h.clients[conn] = true
@@ -90,6 +139,11 @@ func (h *SiteHub) run() {
 			h.mu.RUnlock()
 		}
 	}
+}
+
+// Stop signals the hub to shutdown
+func (h *SiteHub) Stop() {
+	close(h.done)
 }
 
 // Broadcast sends a message to all connected clients
