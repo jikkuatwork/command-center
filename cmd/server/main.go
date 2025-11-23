@@ -46,6 +46,9 @@ func main() {
 		case "deploy":
 			runDeploy(os.Args[2:])
 			return
+		case "sites":
+			runSites(os.Args[2:])
+			return
 		case "--version", "-version":
 			printVersion()
 			return
@@ -821,4 +824,111 @@ func createDeployZip(dir string) (*bytes.Buffer, int, error) {
 	}
 
 	return buf, fileCount, nil
+}
+
+// runSites handles the "sites" subcommand
+func runSites(args []string) {
+	// Initialize hosting to get sites directory
+	homeDir, _ := os.UserHomeDir()
+	configDir := filepath.Join(homeDir, ".config", "cc")
+	if err := hosting.Init(configDir); err != nil {
+		fmt.Printf("Error initializing hosting: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Handle subcommands
+	if len(args) == 0 {
+		listSites()
+		return
+	}
+
+	switch args[0] {
+	case "list", "ls":
+		listSites()
+	case "delete", "rm":
+		if len(args) < 2 {
+			fmt.Println("Error: site name required")
+			fmt.Println("Usage: cc-server sites delete <site-name>")
+			os.Exit(1)
+		}
+		deleteSite(args[1])
+	case "help":
+		fmt.Println("Usage: cc-server sites [command]")
+		fmt.Println()
+		fmt.Println("Commands:")
+		fmt.Println("  list, ls        List all deployed sites")
+		fmt.Println("  delete, rm      Delete a site")
+		fmt.Println("  help            Show this help")
+	default:
+		fmt.Printf("Unknown command: %s\n", args[0])
+		fmt.Println("Run 'cc-server sites help' for usage")
+		os.Exit(1)
+	}
+}
+
+// listSites displays all deployed sites
+func listSites() {
+	sites, err := hosting.ListSites()
+	if err != nil {
+		fmt.Printf("Error listing sites: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(sites) == 0 {
+		fmt.Println("No sites deployed yet.")
+		fmt.Println()
+		fmt.Println("Deploy a site:")
+		fmt.Println("  cd /path/to/site && cc-server deploy my-site --token <api-token>")
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("%-20s %-8s %-12s %s\n", "SITE", "FILES", "SIZE", "URL")
+	fmt.Printf("%-20s %-8s %-12s %s\n", "----", "-----", "----", "---")
+
+	for _, site := range sites {
+		size := formatSize(site.SizeBytes)
+		url := fmt.Sprintf("http://%s.localhost:4698", site.Name)
+		fmt.Printf("%-20s %-8d %-12s %s\n", site.Name, site.FileCount, size, url)
+	}
+	fmt.Println()
+}
+
+// deleteSite removes a deployed site
+func deleteSite(name string) {
+	if !hosting.SiteExists(name) {
+		fmt.Printf("Site '%s' does not exist\n", name)
+		os.Exit(1)
+	}
+
+	// Confirm deletion
+	fmt.Printf("Are you sure you want to delete '%s'? [y/N]: ", name)
+	var confirm string
+	fmt.Scanln(&confirm)
+
+	if strings.ToLower(confirm) != "y" && strings.ToLower(confirm) != "yes" {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	if err := hosting.DeleteSite(name); err != nil {
+		fmt.Printf("Error deleting site: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Site '%s' deleted successfully\n", name)
+}
+
+// formatSize formats bytes to human readable format
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
