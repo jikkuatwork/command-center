@@ -535,6 +535,7 @@ func extractSubdomain(host, mainDomain string) string {
 
 // siteHandler handles requests for hosted sites
 // Serves static files from ~/.config/cc/sites/{subdomain}/
+// If main.js exists, executes serverless JavaScript instead
 func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
 	// Check if site exists
 	if !hosting.SiteExists(subdomain) {
@@ -547,6 +548,14 @@ func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
 
 	// Get the site directory
 	siteDir := hosting.GetSiteDir(subdomain)
+
+	// Check for serverless (main.js)
+	if hosting.HasServerless(siteDir) {
+		db := database.GetDB()
+		if hosting.RunServerless(w, r, siteDir, db, subdomain) {
+			return // Serverless handled the request
+		}
+	}
 
 	// Create a file server for this site
 	fileServer := http.FileServer(http.Dir(siteDir))
