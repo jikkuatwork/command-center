@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jikku/command-center/internal/auth"
 	"github.com/jikku/command-center/internal/database"
 	"github.com/jikku/command-center/internal/hosting"
 )
@@ -20,6 +21,17 @@ import (
 func DeployHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Rate limit: 5 deploys per minute per IP
+	clientIP := r.RemoteAddr
+	if fwdIP := r.Header.Get("X-Forwarded-For"); fwdIP != "" {
+		clientIP = strings.Split(fwdIP, ",")[0]
+	}
+	limiter := auth.GetDeployLimiter()
+	if !limiter.AllowDeploy(clientIP) {
+		jsonError(w, "Rate limit exceeded: max 5 deploys per minute", http.StatusTooManyRequests)
 		return
 	}
 
@@ -103,6 +115,9 @@ func DeployHandler(w http.ResponseWriter, r *http.Request) {
 	if err := hosting.RecordDeployment(db, result.SiteID, result.SizeBytes, result.FileCount, deployedBy); err != nil {
 		log.Printf("Failed to record deployment: %v", err)
 	}
+
+	// Record rate limit
+	limiter.RecordDeploy(clientIP)
 
 	log.Printf("Site deployed: %s by %s (key_id=%d), %d files, %d bytes",
 		siteName, keyName, keyID, result.FileCount, result.SizeBytes)

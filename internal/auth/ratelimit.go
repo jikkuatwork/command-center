@@ -110,3 +110,75 @@ func (rl *RateLimiter) cleanup() {
 		rl.mu.Unlock()
 	}
 }
+
+// DeployLimiter tracks deploy attempts by IP (5 deploys per minute)
+type DeployLimiter struct {
+	deploys map[string][]time.Time
+	mu      sync.RWMutex
+}
+
+var deployLimiter *DeployLimiter
+
+// GetDeployLimiter returns the singleton deploy limiter
+func GetDeployLimiter() *DeployLimiter {
+	if deployLimiter == nil {
+		deployLimiter = &DeployLimiter{
+			deploys: make(map[string][]time.Time),
+		}
+		go deployLimiter.cleanup()
+	}
+	return deployLimiter
+}
+
+// AllowDeploy checks if a deploy is allowed for an IP (max 5 per minute)
+func (dl *DeployLimiter) AllowDeploy(ip string) bool {
+	dl.mu.Lock()
+	defer dl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-1 * time.Minute)
+
+	// Filter to recent deploys only
+	recent := []time.Time{}
+	for _, t := range dl.deploys[ip] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	dl.deploys[ip] = recent
+
+	return len(recent) < 5
+}
+
+// RecordDeploy records a deploy for an IP
+func (dl *DeployLimiter) RecordDeploy(ip string) {
+	dl.mu.Lock()
+	defer dl.mu.Unlock()
+
+	dl.deploys[ip] = append(dl.deploys[ip], time.Now())
+}
+
+// cleanup removes old entries periodically
+func (dl *DeployLimiter) cleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		dl.mu.Lock()
+		cutoff := time.Now().Add(-5 * time.Minute)
+		for ip, times := range dl.deploys {
+			recent := []time.Time{}
+			for _, t := range times {
+				if t.After(cutoff) {
+					recent = append(recent, t)
+				}
+			}
+			if len(recent) == 0 {
+				delete(dl.deploys, ip)
+			} else {
+				dl.deploys[ip] = recent
+			}
+		}
+		dl.mu.Unlock()
+	}
+}

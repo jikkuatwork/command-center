@@ -36,8 +36,9 @@ func RunServerless(w http.ResponseWriter, r *http.Request, siteDir string, db *s
 		bodyWritten: false,
 	}
 
-	// Create request object
-	bodyBytes, _ := io.ReadAll(r.Body)
+	// Create request object (limit body to 1MB)
+	limitedReader := io.LimitReader(r.Body, 1<<20) // 1MB
+	bodyBytes, _ := io.ReadAll(limitedReader)
 	headers := make(map[string]string)
 	for k, v := range r.Header {
 		if len(v) > 0 {
