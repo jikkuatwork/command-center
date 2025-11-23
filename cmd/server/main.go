@@ -175,6 +175,9 @@ func main() {
 	dashboardMux.HandleFunc("/api/webhooks", handlers.WebhooksHandler)
 	dashboardMux.HandleFunc("/api/config", handlers.ConfigHandler)
 
+	// API routes - Hosting/Deploy
+	dashboardMux.HandleFunc("/api/deploy", handlers.DeployHandler)
+
 	// Static files
 	fs := http.FileServer(http.Dir("./web/static"))
 	dashboardMux.Handle("/static/", http.StripPrefix("/static/", fs))
