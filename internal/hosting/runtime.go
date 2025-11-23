@@ -94,6 +94,55 @@ func RunServerless(w http.ResponseWriter, r *http.Request, siteDir string, db *s
 		},
 	})
 
+	// Inject db object for KV store
+	vm.Set("db", map[string]interface{}{
+		"get": func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) == 0 || db == nil {
+				return goja.Null()
+			}
+			key := call.Arguments[0].String()
+			var value string
+			err := db.QueryRow("SELECT value FROM kv_store WHERE site_id = ? AND key = ?", siteID, key).Scan(&value)
+			if err != nil {
+				return goja.Null()
+			}
+			// Try to parse as JSON
+			var parsed interface{}
+			if json.Unmarshal([]byte(value), &parsed) == nil {
+				return vm.ToValue(parsed)
+			}
+			return vm.ToValue(value)
+		},
+		"set": func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) < 2 || db == nil {
+				return goja.Undefined()
+			}
+			key := call.Arguments[0].String()
+			val := call.Arguments[1].Export()
+			var valueStr string
+			switch v := val.(type) {
+			case string:
+				valueStr = v
+			default:
+				jsonBytes, _ := json.Marshal(v)
+				valueStr = string(jsonBytes)
+			}
+			db.Exec(`
+				INSERT INTO kv_store (site_id, key, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+				ON CONFLICT(site_id, key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
+			`, siteID, key, valueStr, valueStr)
+			return goja.Undefined()
+		},
+		"delete": func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) == 0 || db == nil {
+				return goja.Undefined()
+			}
+			key := call.Arguments[0].String()
+			db.Exec("DELETE FROM kv_store WHERE site_id = ? AND key = ?", siteID, key)
+			return goja.Undefined()
+		},
+	})
+
 	// Run with timeout
 	done := make(chan error, 1)
 	go func() {
