@@ -31,14 +31,14 @@ func Send(title, message, notificationType string) error {
 	}
 
 	// Check if ntfy topic is configured
-	if cfg.NtfyTopic == "" {
+	if cfg.Ntfy.Topic == "" {
 		log.Println("ntfy.sh topic not configured, skipping notification")
 		return nil
 	}
 
 	// Prepare notification payload
 	payload := map[string]interface{}{
-		"topic":   cfg.NtfyTopic,
+		"topic":   cfg.Ntfy.Topic,
 		"title":   title,
 		"message": message,
 		"tags":    []string{"command-center", notificationType},
@@ -60,7 +60,7 @@ func Send(title, message, notificationType string) error {
 	}
 
 	// Send to ntfy.sh
-	url := cfg.NtfyURL + "/" + cfg.NtfyTopic
+	url := cfg.Ntfy.URL + "/" + cfg.Ntfy.Topic
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
