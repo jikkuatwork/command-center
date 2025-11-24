@@ -2,7 +2,7 @@
 
 ## Overview
 
-Command Center v0.2.0 uses a flexible JSON-based configuration system with support for CLI flags, environment variables, and multiple config profiles.
+Command Center v0.3.0 uses a flexible JSON-based configuration system with support for CLI flags, environment variables, and a clean subcommand-based CLI interface.
 
 ## Configuration Priority
 
@@ -69,7 +69,7 @@ Configuration values are loaded in the following order (highest priority first):
 | `auth.username` | string | `""` | Username for login |
 | `auth.password_hash` | string | `""` | bcrypt hash of password |
 
-**Note**: Never set `password_hash` manually. Use `--username` and `--password` flags to update credentials.
+**Note**: Never set `password_hash` manually. Use `set-credentials` subcommand to update credentials.
 
 #### Ntfy Configuration
 
@@ -78,63 +78,94 @@ Configuration values are loaded in the following order (highest priority first):
 | `ntfy.topic` | string | `""` | ntfy.sh topic for notifications |
 | `ntfy.url` | string | `"https://ntfy.sh"` | ntfy.sh server URL |
 
-## CLI Flags
+#### API Key Configuration
 
-### All Available Flags
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_key.token` | string | `""` | Generated API token for deployments |
+| `api_key.name` | string | `""` | Name/description of the API key |
+
+## CLI Commands
+
+Command Center v0.3.0 uses a subcommand-based interface:
 
 ```bash
-cc-server [flags]
+cc-server <command> [flags] [arguments]
 ```
 
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `set-credentials` | Set up authentication credentials |
+| `start` | Start the Command Center server |
+| `stop` | Stop a running Command Center server |
+| `deploy` | Deploy a directory to a site |
+| `--help, -h` | Show help |
+| `--version` | Show version and exit |
+
+### Command-Specific Flags
+
+#### start command
 | Flag | Type | Description |
 |------|------|-------------|
 | `--config <path>` | string | Path to config file |
-| `--env <environment>` | string | Load environment-specific config |
 | `--db <path>` | string | Database file path (overrides config) |
 | `--port <port>` | string | Server port (overrides config) |
-| `--username <user>` | string | Set/update username |
-| `--password <pass>` | string | Set/update password |
-| `--version` | flag | Show version and exit |
-| `--help, -h` | flag | Show help |
-| `--verbose` | flag | Enable verbose logging |
-| `--quiet` | flag | Quiet mode (errors only) |
+
+#### deploy command
+| Flag | Type | Description |
+|------|------|-------------|
+| `--path <directory>` | string | Directory to deploy (required) |
+| `--domain <subdomain>` | string | Domain/subdomain for the site (required) |
+| `--server <url>` | string | Command Center server URL |
+
+#### set-credentials command
+| Flag | Type | Description |
+|------|------|-------------|
+| `--username <user>` | string | Username for authentication |
+| `--password <pass>` | string | Password for authentication |
 
 ### Examples
 
 #### Basic Usage
 
 ```bash
-# Start with default config
-./cc-server
+# Set up authentication (recommended first step)
+./cc-server set-credentials --username admin --password secret123
+
+# Start the server
+./cc-server start
 
 # Start with custom config file
-./cc-server --config /path/to/config.json
+./cc-server start --config /path/to/config.json
 
 # Start on custom port
-./cc-server --port 8080
+./cc-server start --port 8080
 
 # Start with custom database
-./cc-server --db /path/to/data.db
+./cc-server start --db /path/to/data.db
+
+# Stop the server
+./cc-server stop
+
+# Deploy a site
+./cc-server deploy --path ./my-site --domain my-app
+
+# Deploy to remote server
+./cc-server deploy --path ./build --domain app --server https://cc.example.com
 ```
 
-#### Authentication Setup
+#### Getting Help
 
 ```bash
-# Set up authentication (creates/updates config)
-./cc-server --username admin --password mysecurepassword
+# General help
+./cc-server --help
 
-# Then start normally
-./cc-server
-```
-
-#### Environment-Specific Configs
-
-```bash
-# Development (loads config.development.json)
-./cc-server --env development
-
-# Production (loads config.production.json)
-./cc-server --env production
+# Command-specific help
+./cc-server start --help
+./cc-server deploy --help
+./cc-server set-credentials --help
 ```
 
 ## Environment Variables
@@ -221,25 +252,25 @@ Create `config.production.json`:
 
 ## Creating Configs
 
-### Using --username and --password
+### Using set-credentials Command
 
 The easiest way to create a config is:
 
 ```bash
-./cc-server --username admin --password yourpassword --config ~/.config/cc/config.json
+./cc-server set-credentials --username admin --password secret123
 ```
 
 This will:
-1. Create `~/.config/cc/` directory if needed
+1. Create `~/.config/cc/` directory if needed (with secure 0700 permissions)
 2. Generate `config.json` with your credentials
-3. Hash password with bcrypt
+3. Hash password with bcrypt (cost factor 12)
 4. Enable authentication
 5. Exit (doesn't start server)
 
-Then start normally:
+Then start the server:
 
 ```bash
-./cc-server
+./cc-server start
 ```
 
 ### Manual Creation
@@ -251,7 +282,7 @@ Then start normally:
 
 2. Generate password hash:
    ```bash
-   ./cc-server --username admin --password temp
+   ./cc-server set-credentials --username admin --password temp
    ```
 
 3. Copy the hash from the created config
@@ -285,7 +316,7 @@ The server automatically sets secure permissions:
 Failed to load config: no such file or directory
 ```
 
-**Solution**: Create config using `--username` and `--password` flags or copy from `config.example.json`.
+**Solution**: Create config using `set-credentials` command or copy from `config.example.json`.
 
 ### Invalid Port
 
@@ -309,7 +340,7 @@ Failed to write config file: permission denied
 Auth enabled but username is empty
 ```
 
-**Solution**: Either disable auth or set credentials with `--username` and `--password`.
+**Solution**: Either disable auth or set credentials with `set-credentials` command.
 
 ## Best Practices
 
@@ -318,20 +349,48 @@ Auth enabled but username is empty
 3. **Use secure file permissions** (automatic in v0.2.0)
 4. **Regular backups** of config and database
 5. **Document custom configs** for team members
-6. **Use `--env` flag** instead of manual config switching
-7. **Validate configs** with `--config` flag before deploying
+6. **Use subcommands** instead of flag-based operations
+7. **Validate configs** before deploying
 8. **Keep example config updated** when adding fields
+9. **Use the new CLI** for cleaner, more predictable operations
 
-## Migration from v0.1.0
+## Migration from v0.2.x to v0.3.0
 
-If you're upgrading from v0.1.0 (environment variable based config):
+The CLI interface has changed from flag-based to subcommand-based:
 
-1. Your existing environment variables will still work
-2. Create a config file for better management:
-   ```bash
-   ./cc-server --username admin --password yourpass
-   ```
-3. Gradually migrate to config file
-4. Remove environment variables when ready
+### Old CLI (v0.2.x)
+```bash
+# Set credentials
+./cc-server --username admin --password secret123
 
-See [UPGRADE.md](UPGRADE.md) for detailed migration guide.
+# Start server
+./cc-server
+
+# Deploy (explicit flags)
+./cc-server deploy --path . --domain my-site
+```
+
+### New CLI (v0.3.0)
+```bash
+# Set credentials
+./cc-server set-credentials --username admin --password secret123
+
+# Start server
+./cc-server start
+
+# Deploy (explicit flags)
+./cc-server deploy --path . --domain my-site
+```
+
+### Key Changes
+1. **Subcommand structure** - Clear separation of concerns
+2. **Flag-based arguments** - All parameters use explicit flags (no positional arguments)
+3. **Removed `--env` flag** - Environment configs not supported
+4. **Consolidated config** - All settings in `~/.config/cc/config.json`
+5. **Better error handling** - Clear help and error messages
+
+### Migration Steps
+1. Continue using existing config files (compatible)
+2. Update deployment scripts to use new `deploy` command
+3. Update service files to use `start` command
+4. Update documentation with new CLI examples

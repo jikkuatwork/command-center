@@ -14,10 +14,11 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
-	Server   ServerConfig   `json:"server"`
+	Server ServerConfig   `json:"server"`
 	Database DatabaseConfig `json:"database"`
-	Auth     AuthConfig     `json:"auth"`
-	Ntfy     NtfyConfig     `json:"ntfy"`
+	Auth AuthConfig     `json:"auth"`
+	Ntfy NtfyConfig     `json:"ntfy"`
+	APIKey APIKeyConfig `json:"api_key,omitempty"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -45,6 +46,12 @@ type NtfyConfig struct {
 	URL   string `json:"url"`
 }
 
+// APIKeyConfig holds API key configuration for deployment
+type APIKeyConfig struct {
+	Token string `json:"token,omitempty"`
+	Name  string `json:"name,omitempty"`
+}
+
 var appConfig *Config
 
 // CLIFlags holds command-line flags
@@ -54,10 +61,9 @@ type CLIFlags struct {
 	Port       string
 	Username   string
 	Password   string
-	Env        string
 }
 
-// ParseFlags parses command-line flags
+// ParseFlags parses command-line flags (for backward compatibility)
 func ParseFlags() *CLIFlags {
 	flags := &CLIFlags{}
 
@@ -74,18 +80,12 @@ func ParseFlags() *CLIFlags {
 	flag.StringVar(&flags.Port, "port", "", "Server port (overrides config)")
 	flag.StringVar(&flags.Username, "username", "", "Set/update username (updates config)")
 	flag.StringVar(&flags.Password, "password", "", "Set/update password (updates config)")
-	flag.StringVar(&flags.Env, "env", "", "Environment (development/production, loads config.<env>.json)")
 
 	flag.Parse()
 
 	// If no db path provided via flag, use default
 	if flags.DBPath == "" {
 		flags.DBPath = defaultDBPath
-	}
-
-	// If --env flag is provided, override config path
-	if flags.Env != "" {
-		flags.ConfigPath = fmt.Sprintf("./config.%s.json", flags.Env)
 	}
 
 	return flags
@@ -312,4 +312,15 @@ func (c *Config) NtfyURL() string {
 
 func (c *Config) Environment() string {
 	return c.Server.Env
+}
+
+// GetAPIKey returns the stored API key token
+func (c *Config) GetAPIKey() string {
+	return c.APIKey.Token
+}
+
+// SetAPIKey stores the API key token and name in config
+func (c *Config) SetAPIKey(token, name string) {
+	c.APIKey.Token = token
+	c.APIKey.Name = name
 }

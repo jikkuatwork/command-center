@@ -1,133 +1,125 @@
 # Command Center - AI Assistant Context
 
 ## Project Overview
-Command Center is a Personal PaaS (Platform as a Service) combining:
-- **Analytics & Tracking**: Pageviews, pixels, redirects, webhooks
-- **Static Site Hosting**: Deploy static sites via CLI (Surge-like)
-- **Serverless JavaScript**: Run JS functions with `main.js`
-- **Key-Value Store**: Persistent data for serverless apps
-- **WebSocket Support**: Real-time communication
+Command Center v0.3.0 is a Personal PaaS combining analytics tracking with static site hosting and serverless JavaScript.
 
-**Single binary, SQLite-backed, local filesystem storage.**
+**Core Features**:
+- Analytics: Pageviews, pixels, redirects, webhooks
+- Static Site Hosting: Surge.sh-like deployment via CLI
+- Serverless JavaScript: Run JS with `main.js` (100ms timeout)
+- Key-Value Store: Persistent data for serverless apps
+- WebSocket Support: Real-time communication via `/ws`
 
 ## Architecture
-
 ```
-cmd/server/main.go       # Entry point, CLI, HTTP routing
+cmd/server/main.go       # Entry point (1,159 lines), dual CLI/server modes
 internal/
-  hosting/               # PaaS core logic
-    manager.go           # Site CRUD operations
+  hosting/               # PaaS core (6 files)
+    runtime.go           # Goja JS runtime with SSRF protection
     deploy.go            # ZIP extraction, API keys
-    runtime.go           # Goja JS runtime
-    security.go          # Path traversal protection
-    ws.go                # WebSocket hub
-  handlers/              # HTTP handlers
-    deploy.go            # POST /api/deploy
-    hosting.go           # Sites, keys, env vars APIs
+    manager.go           # Site CRUD operations
+  handlers/              # HTTP handlers (10 files)
   auth/                  # Session management, rate limiting
-  database/              # SQLite with migrations
-  config/                # JSON config loading
-migrations/              # SQL schema files
-web/templates/           # HTML templates
+  middleware/            # Security, auth, tracing
+  database/              # SQLite with WAL mode, migrations
+  config/                # JSON config with CLI overrides
+migrations/              # SQL schema (3 files)
 examples/                # Sample apps
 ```
 
 ## Key Commands
-
 ```bash
-# Build
+# Build & Test
 go build -o cc-server ./cmd/server/
+go test ./... -v
 
-# Run tests
-go test ./...
+# CLI Commands (subcommand-based interface)
+./cc-server set-credentials --username admin --password secret123  # Set up auth
+./cc-server start [--port 8080] [--config path]                     # Start server
+./cc-server deploy --path <PATH> --domain <SUBDOMAIN>               # Deploy site
+./cc-server stop                                                     # Stop server
+./cc-server --version                                                # Show version
+./cc-server --help                                                   # Show help
 
-# Run server
-./cc-server
-
-# Deploy a site
-cd my-site && ../cc-server deploy sitename --token <api-key>
-
-# Setup auth
-./cc-server --username admin --password secret
+# Common workflows
+./cc-server set-credentials --username admin --password secret123 && ./cc-server start
+./cc-server deploy --path . --domain my-app                         # Deploy current dir
+./cc-server deploy --path ~/project/build --domain app --server https://cc.example.com
 ```
 
 ## Database Schema
-
 - `events` - Analytics events
 - `api_keys` - Deploy tokens (bcrypt hashed)
-- `kv_store` - Serverless key-value data (site-scoped)
+- `kv_store` - Serverless data (site-isolated)
 - `env_vars` - Environment variables (site-scoped)
 - `deployments` - Deployment history
-- `migrations` - Schema version tracking
+- `redirects` - URL shortener
+- `webhooks` - Webhook endpoints
 
 ## JavaScript Runtime API
-
 ```javascript
-// Request
+// Request/Response
 req.method, req.path, req.query, req.headers, req.body
-
-// Response
 res.send(html), res.json(obj), res.status(code), res.header(k, v)
 
 // Storage (site-isolated)
 db.get(key), db.set(key, value), db.delete(key)
 
-// Environment
+// Environment & WebSocket
 process.env.MY_SECRET
-
-// WebSocket
 socket.broadcast(msg), socket.clients()
+
+// HTTP requests (SSRF protected)
+const resp = fetch(url, options)  // { status, body, headers, error }
 
 // Logging
 console.log(...)
-
-// HTTP requests (synchronous, 5s timeout, 1MB limit, SSRF protected)
-const resp = fetch(url, { method: 'POST', headers: {}, body: '' });
-// resp.status, resp.body, resp.headers, resp.error
 ```
 
 ## Configuration
+**File**: `~/.config/cc/config.json` (auto-created with secure `0700` permissions)
+**Priority**: CLI flags > Config file > Environment > Defaults
 
-Config file: `~/.config/cc/config.json`
 ```json
 {
-  "server": { "port": "4698", "domain": "localhost", "env": "development" },
+  "server": { "port": "4698", "domain": "https://cc.toolbomber.com", "env": "development" },
   "database": { "path": "~/.config/cc/data.db" },
-  "auth": { "enabled": false, "username": "", "password_hash": "" }
+  "auth": { "enabled": true, "username": "admin", "password_hash": "bcrypt_hash" },
+  "api_key": { "token": "generated_token", "name": "auto-generated" },
+  "ntfy": { "topic": "", "url": "https://ntfy.sh" }
 }
 ```
 
+**Directory Creation**: `~/.config/cc/` automatically created by CLI commands with secure permissions.
+
 ## Important Constraints
+- **100ms JS timeout** - Serverless execution limit
+- **100MB file limit** - Per-file in ZIP uploads
+- **1MB request body** - API limit (100MB for deploy)
+- **5 deploys/minute** - Rate limiting per IP
+- **Site isolation** - KV store and env vars scoped by site_id
+- **SSRF protection** - Blocks internal IPs in fetch()
 
-1. **100ms JS timeout** - Scripts killed after 100ms
-2. **100MB file limit** - Per-file limit in ZIP uploads
-3. **Site isolation** - KV store and env vars scoped by site_id
-4. **Path traversal protection** - ZIP extraction and file serving secured
+## HTTP API Endpoints
+**Analytics**: `/track`, `/pixel.gif`, `/r/{slug}`, `/webhook/{name}`
+**Dashboard**: `/api/stats`, `/api/events`, `/api/redirects` (auth required)
+**PaaS**: `/api/deploy` (Bearer token), `/api/sites`, `/api/keys`, `/api/envvars`
+**Auth**: `/login`, `/api/login`, `/api/logout`, `/api/auth/status`
 
-## Testing
-
-```bash
-# Run all tests
-go test ./...
-
-# Run with coverage
-go test ./... -cover
-
-# Run specific package
-go test ./internal/hosting/...
-```
+## Request Routing
+- **Dashboard** (localhost/main domain) → Authentication required
+- **Sites** (subdomain.localhost) → Static files or serverless JS
+- **Middleware**: Tracing → Logging → Body limit → Security → CORS → Auth
 
 ## Common Tasks
+**Add API endpoint**: Handler in `internal/handlers/`, register in `main.go` dashboardMux
+**Add JS function**: Edit `internal/hosting/runtime.go` vm.Set() section
+**Add table**: Create migration file, update `internal/database/db.go`
+**Security**: Validate inputs, use parameterized queries, apply rate limiting
 
-### Add a new API endpoint
-1. Add handler in `internal/handlers/`
-2. Register route in `cmd/server/main.go` (dashboardMux)
-3. Add auth middleware if needed
-
-### Add new JS runtime function
-1. Edit `internal/hosting/runtime.go`
-2. Add to `vm.Set()` calls before `vm.RunString()`
-
-### Add database table
-1. Create `migrations/00X_name.sql`
-2. Add to migrations list in `internal/database/db.go`
+## CLI Interface Design
+The CLI uses a clear subcommand structure rather than flag-based modes:
+- **Subcommands**: `set-credentials`, `deploy`, `start`, `stop`
+- **Flag ordering**: Flags must come before positional arguments (Go flag package standard)
+- **Error handling**: Clear error messages and usage guidance
+- **Auto-creation**: Config directories created automatically with secure permissions

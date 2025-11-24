@@ -28,6 +28,7 @@ import (
 	"github.com/jikku/command-center/internal/hosting"
 	"github.com/jikku/command-center/internal/middleware"
 	"github.com/jikku/command-center/internal/security"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const Version = "v0.3.0"
@@ -40,240 +41,38 @@ var (
 )
 
 func main() {
-	// Check for subcommands first
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "deploy":
-			runDeploy(os.Args[2:])
-			return
-		case "sites":
-			runSites(os.Args[2:])
-			return
-		case "--version", "-version":
-			printVersion()
-			return
-		case "--help", "-help", "-h":
-			printHelp()
-			return
-		}
-	}
-
-	// Check for --version or --help before parsing other flags
-	for _, arg := range os.Args[1:] {
-		if arg == "--version" || arg == "-version" {
-			printVersion()
-			return
-		}
-		if arg == "--help" || arg == "-help" || arg == "-h" {
-			printHelp()
-			return
-		}
-	}
-
-	// Configure logging based on flags
-	if *quiet {
-		log.SetOutput(io.Discard)
-	}
-
-	if !*quiet {
-		log.Println("Starting Command Center...")
-	}
-
-	// Parse CLI flags
-	flags := config.ParseFlags()
-
-	// Handle credential setup mode (--username and --password flags)
-	if flags.Username != "" && flags.Password != "" {
-		handleCredentialSetup(flags)
+	if len(os.Args) < 2 {
+		printUsage()
 		return
 	}
 
-	// Load configuration
-	cfg, err := config.Load(flags)
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+	command := os.Args[1]
+
+	// Handle help/version flags first
+	if command == "--version" || command == "-version" {
+		printVersion()
+		return
+	}
+	if command == "--help" || command == "-help" || command == "-h" {
+		printUsage()
+		return
 	}
 
-	// Ensure secure file permissions
-	security.EnsureSecurePermissions(config.ExpandPath(flags.ConfigPath), cfg.Database.Path)
-
-	// Display startup information
-	fmt.Println()
-	fmt.Println("═══════════════════════════════════════════════════════════")
-	fmt.Println("           Command Center v0.3.0 - Starting Up")
-	fmt.Println("═══════════════════════════════════════════════════════════")
-	fmt.Println()
-	fmt.Printf("  Environment:  %s\n", cfg.Server.Env)
-	fmt.Printf("  Port:         %s\n", cfg.Server.Port)
-	fmt.Printf("  Domain:       %s\n", cfg.Server.Domain)
-	fmt.Printf("  Database:     %s\n", cfg.Database.Path)
-	fmt.Printf("  Config File:  %s\n", config.ExpandPath(flags.ConfigPath))
-	fmt.Println()
-
-	// Initialize session store
-	sessionStore := auth.NewSessionStore(auth.SessionTTL)
-	defer sessionStore.Stop()
-
-	// Initialize rate limiter
-	rateLimiter := auth.NewRateLimiter()
-
-	// Initialize auth handlers with session store and rate limiter
-	handlers.InitAuth(sessionStore, rateLimiter)
-
-	// Display auth status with warnings
-	if cfg.Auth.Enabled {
-		fmt.Printf("  Authentication: ✓ Enabled (user: %s)\n", cfg.Auth.Username)
-	} else {
-		fmt.Println("  Authentication: ✗ Disabled")
-		if cfg.IsProduction() {
-			fmt.Println()
-			fmt.Println("  ⚠️  WARNING: Running in PRODUCTION without authentication!")
-			fmt.Println("  ⚠️  Your dashboard is publicly accessible.")
-			fmt.Println()
-			fmt.Println("  To enable authentication, run:")
-			fmt.Printf("    ./cc-server --username admin --password yourpassword\n")
-			fmt.Println()
-		}
+	// Handle subcommands
+	switch command {
+	case "set-credentials":
+		handleSetCredentials()
+	case "deploy":
+		handleDeployCommand()
+	case "start":
+		handleStartCommand()
+	case "stop":
+		handleStopCommand()
+	default:
+		fmt.Printf("Unknown command: %s\n\n", command)
+		printUsage()
+		os.Exit(1)
 	}
-	fmt.Println("═══════════════════════════════════════════════════════════")
-	fmt.Println()
-
-	// Initialize database
-	if err := database.Init(cfg.Database.Path); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
-	defer database.Close()
-
-	// Initialize audit logging
-	if err := audit.Init(database.GetDB()); err != nil {
-		log.Fatalf("Failed to initialize audit logging: %v", err)
-	}
-
-	// Initialize hosting system
-	configDir := filepath.Dir(cfg.Database.Path)
-	if err := hosting.Init(configDir); err != nil {
-		log.Fatalf("Failed to initialize hosting: %v", err)
-	}
-	log.Printf("Hosting initialized: %s", hosting.GetSitesDir())
-
-	// Generate mock data in development mode
-	if cfg.IsDevelopment() {
-		log.Println("Development mode: Checking for existing data...")
-		// Only generate mock data if database is empty
-		db := database.GetDB()
-		var count int
-		err := db.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
-		if err == nil && count == 0 {
-			log.Println("Database is empty, generating mock data...")
-			if err := database.GenerateMockData(); err != nil {
-				log.Printf("Warning: Failed to generate mock data: %v", err)
-			}
-		} else {
-			log.Printf("Database already has %d events, skipping mock data generation", count)
-		}
-	}
-
-	// Create dashboard router (existing dashboard functionality)
-	dashboardMux := http.NewServeMux()
-
-	// Authentication routes
-	dashboardMux.HandleFunc("/login", handlers.LoginPageHandler)
-	dashboardMux.HandleFunc("/api/login", handlers.LoginHandler)
-	dashboardMux.HandleFunc("/api/logout", handlers.LogoutHandler)
-	dashboardMux.HandleFunc("/api/auth/status", handlers.AuthStatusHandler)
-
-	// API routes - Tracking
-	dashboardMux.HandleFunc("/track", handlers.TrackHandler)
-	dashboardMux.HandleFunc("/pixel.gif", handlers.PixelHandler)
-	dashboardMux.HandleFunc("/r/", handlers.RedirectHandler)
-	dashboardMux.HandleFunc("/webhook/", handlers.WebhookHandler)
-
-	// API routes - Dashboard
-	dashboardMux.HandleFunc("/api/stats", handlers.StatsHandler)
-	dashboardMux.HandleFunc("/api/events", handlers.EventsHandler)
-	dashboardMux.HandleFunc("/api/redirects", handlers.RedirectsHandler)
-	dashboardMux.HandleFunc("/api/domains", handlers.DomainsHandler)
-	dashboardMux.HandleFunc("/api/tags", handlers.TagsHandler)
-	dashboardMux.HandleFunc("/api/webhooks", handlers.WebhooksHandler)
-	dashboardMux.HandleFunc("/api/config", handlers.ConfigHandler)
-
-	// API routes - Hosting/Deploy
-	dashboardMux.HandleFunc("/api/deploy", handlers.DeployHandler)
-	dashboardMux.HandleFunc("/api/sites", handlers.SitesHandler)
-	dashboardMux.HandleFunc("/api/keys", handlers.APIKeysHandler)
-	dashboardMux.HandleFunc("/api/deployments", handlers.DeploymentsHandler)
-	dashboardMux.HandleFunc("/api/envvars", handlers.EnvVarsHandler)
-
-	// Hosting management page
-	dashboardMux.HandleFunc("/hosting", handlers.HostingPageHandler)
-
-	// Static files
-	fs := http.FileServer(http.Dir("./web/static"))
-	dashboardMux.Handle("/static/", http.StripPrefix("/static/", fs))
-
-	// Dashboard (root)
-	dashboardMux.HandleFunc("/", handlers.DashboardHandler)
-
-	// Health check (available on both dashboard and sites)
-	dashboardMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := database.HealthCheck(); err != nil {
-			http.Error(w, "Database unhealthy", http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	// Create the root handler with host-based routing
-	rootHandler := createRootHandler(cfg, dashboardMux, sessionStore)
-
-	// Apply middleware (order: tracing -> logging -> body limit -> security -> cors -> recovery -> root)
-	handler := middleware.RequestTracing(
-		loggingMiddleware(
-			middleware.BodySizeLimit(middleware.MaxBodySize)(
-				middleware.SecurityHeaders(
-					corsMiddleware(
-						recoveryMiddleware(rootHandler),
-					),
-				),
-			),
-		),
-	)
-
-	// Create server
-	srv := &http.Server{
-		Addr:         ":" + cfg.Server.Port,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start server in a goroutine
-	go func() {
-		log.Printf("Server starting on :%s", cfg.Server.Port)
-		log.Printf("Dashboard: http://localhost:%s", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal for graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down server...")
-
-	// Graceful shutdown with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
-	}
-
-	log.Println("Server stopped")
 }
 
 // loggingMiddleware logs all HTTP requests
@@ -341,112 +140,11 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// handleCredentialSetup sets up or updates credentials when --username and --password flags are provided
-func handleCredentialSetup(flags *config.CLIFlags) {
-	log.Println("Setting up authentication credentials...")
-
-	// Validate password strength
-	isStrong, warnings := auth.ValidatePasswordStrength(flags.Password)
-	if len(warnings) > 0 {
-		log.Println("Password strength warnings:")
-		for _, warning := range warnings {
-			log.Printf("  - %s", warning)
-		}
-	}
-	if isStrong {
-		log.Println("Password strength: Strong")
-	} else {
-		log.Println("Password strength: Weak (but acceptable)")
-	}
-
-	// Hash the password
-	passwordHash, err := auth.HashPassword(flags.Password)
-	if err != nil {
-		log.Fatalf("Failed to hash password: %v", err)
-	}
-
-	// Load or create config
-	configPath := config.ExpandPath(flags.ConfigPath)
-	cfg, err := config.LoadFromFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("Config file not found, creating new config at %s", configPath)
-			cfg = config.CreateDefaultConfig()
-		} else {
-			log.Fatalf("Failed to load config: %v", err)
-		}
-	}
-
-	// Update auth configuration
-	cfg.Auth.Enabled = true
-	cfg.Auth.Username = flags.Username
-	cfg.Auth.PasswordHash = passwordHash
-
-	// Save config
-	if err := config.SaveToFile(cfg, configPath); err != nil {
-		log.Fatalf("Failed to save config: %v", err)
-	}
-
-	// Success message
-	fmt.Println()
-	fmt.Println("✓ Authentication configured successfully!")
-	fmt.Println()
-	fmt.Printf("Config file: %s\n", configPath)
-	fmt.Printf("Username:    %s\n", flags.Username)
-	fmt.Println("Password:    [hashed and saved]")
-	fmt.Println("Auth:        enabled")
-	fmt.Println()
-	fmt.Println("To start the server:")
-	fmt.Println("  ./cc-server")
-	fmt.Println()
-	fmt.Println("Or with custom config:")
-	fmt.Printf("  ./cc-server --config %s\n", configPath)
-	fmt.Println()
-}
-
 // printVersion displays version information
 func printVersion() {
 	fmt.Printf("Command Center %s\n", Version)
 	fmt.Printf("Go version: %s\n", runtime.Version())
 	fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-}
-
-// printHelp displays usage information
-func printHelp() {
-	fmt.Println("Command Center v0.3.0 - Analytics & Personal Cloud")
-	fmt.Println()
-	fmt.Println("USAGE:")
-	fmt.Println("  cc-server [flags]")
-	fmt.Println()
-	fmt.Println("FLAGS:")
-	fmt.Println("  --config <path>       Path to config file (default: ~/.config/cc/config.json)")
-	fmt.Println("  --env <environment>   Load environment-specific config (development/production)")
-	fmt.Println("  --db <path>           Database file path (overrides config)")
-	fmt.Println("  --port <port>         Server port (overrides config)")
-	fmt.Println("  --username <user>     Set/update username (creates/updates config)")
-	fmt.Println("  --password <pass>     Set/update password (creates/updates config)")
-	fmt.Println("  --version             Show version and exit")
-	fmt.Println("  --help, -h            Show this help")
-	fmt.Println("  --verbose             Enable verbose logging")
-	fmt.Println("  --quiet               Quiet mode (errors only)")
-	fmt.Println()
-	fmt.Println("EXAMPLES:")
-	fmt.Println("  # Setup authentication")
-	fmt.Println("  cc-server --username admin --password mysecurepass")
-	fmt.Println()
-	fmt.Println("  # Start server with default config")
-	fmt.Println("  cc-server")
-	fmt.Println()
-	fmt.Println("  # Start with specific environment")
-	fmt.Println("  cc-server --env production")
-	fmt.Println()
-	fmt.Println("  # Start with custom config and database")
-	fmt.Println("  cc-server --config /path/to/config.json --db /path/to/data.db")
-	fmt.Println()
-	fmt.Println("  # Start on custom port")
-	fmt.Println("  cc-server --port 8080")
-	fmt.Println()
-	fmt.Println("For more information, visit: https://github.com/jikkuatwork/command-center")
 }
 
 // createRootHandler creates a handler that routes based on the Host header
@@ -638,133 +336,6 @@ func serveSiteNotFound(w http.ResponseWriter, subdomain string) {
 </html>`, subdomain)
 }
 
-// runDeploy handles the "deploy" subcommand
-func runDeploy(args []string) {
-	// Parse deploy flags
-	deployFlags := flag.NewFlagSet("deploy", flag.ExitOnError)
-	serverURL := deployFlags.String("server", "http://localhost:4698", "Server URL")
-	tokenFlag := deployFlags.String("token", "", "API token (or read from ~/.cc-token)")
-
-	deployFlags.Usage = func() {
-		fmt.Println("Usage: cc-server deploy <site-name> [options]")
-		fmt.Println()
-		fmt.Println("Deploy the current directory to a site.")
-		fmt.Println()
-		fmt.Println("Options:")
-		deployFlags.PrintDefaults()
-		fmt.Println()
-		fmt.Println("Examples:")
-		fmt.Println("  cc-server deploy my-site")
-		fmt.Println("  cc-server deploy my-site --server https://cc.example.com")
-		fmt.Println("  cc-server deploy my-site --token abc123")
-	}
-
-	if err := deployFlags.Parse(args); err != nil {
-		os.Exit(1)
-	}
-
-	// Get site name
-	if deployFlags.NArg() < 1 {
-		fmt.Println("Error: site name required")
-		deployFlags.Usage()
-		os.Exit(1)
-	}
-	siteName := deployFlags.Arg(0)
-
-	// Get token
-	token := *tokenFlag
-	if token == "" {
-		// Try to read from ~/.cc-token
-		homeDir, _ := os.UserHomeDir()
-		tokenPath := filepath.Join(homeDir, ".cc-token")
-		if data, err := os.ReadFile(tokenPath); err == nil {
-			token = strings.TrimSpace(string(data))
-		}
-	}
-
-	if token == "" {
-		fmt.Println("Error: API token required. Use --token flag or create ~/.cc-token")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Deploying to %s as '%s'...\n", *serverURL, siteName)
-
-	// Create ZIP of current directory
-	zipBuffer, fileCount, err := createDeployZip(".")
-	if err != nil {
-		fmt.Printf("Error creating ZIP: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Zipped %d files (%d bytes)\n", fileCount, zipBuffer.Len())
-
-	// Create multipart form
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-
-	// Add site_name field
-	if err := writer.WriteField("site_name", siteName); err != nil {
-		fmt.Printf("Error creating form: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Add file
-	part, err := writer.CreateFormFile("file", "site.zip")
-	if err != nil {
-		fmt.Printf("Error creating form file: %v\n", err)
-		os.Exit(1)
-	}
-	if _, err := io.Copy(part, zipBuffer); err != nil {
-		fmt.Printf("Error writing zip to form: %v\n", err)
-		os.Exit(1)
-	}
-	writer.Close()
-
-	// Make request
-	req, err := http.NewRequest("POST", *serverURL+"/api/deploy", &body)
-	if err != nil {
-		fmt.Printf("Error creating request: %v\n", err)
-		os.Exit(1)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Error sending request: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-
-	// Parse response
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Printf("Error parsing response: %v\n", err)
-		os.Exit(1)
-	}
-
-	if success, ok := result["success"].(bool); ok && success {
-		fmt.Println()
-		fmt.Println("✓ Deployment successful!")
-		fmt.Printf("  Site: %s\n", siteName)
-		if count, ok := result["file_count"].(float64); ok {
-			fmt.Printf("  Files: %d\n", int(count))
-		}
-		if size, ok := result["size_bytes"].(float64); ok {
-			fmt.Printf("  Size: %d bytes\n", int(size))
-		}
-		fmt.Printf("  URL: %s.localhost:4698\n", siteName)
-	} else {
-		fmt.Println()
-		fmt.Println("✗ Deployment failed!")
-		if errMsg, ok := result["error"].(string); ok {
-			fmt.Printf("  Error: %s\n", errMsg)
-		}
-		os.Exit(1)
-	}
-}
-
 // createDeployZip creates a ZIP archive of the directory
 func createDeployZip(dir string) (*bytes.Buffer, int, error) {
 	buf := new(bytes.Buffer)
@@ -835,99 +406,6 @@ func createDeployZip(dir string) (*bytes.Buffer, int, error) {
 	return buf, fileCount, nil
 }
 
-// runSites handles the "sites" subcommand
-func runSites(args []string) {
-	// Initialize hosting to get sites directory
-	homeDir, _ := os.UserHomeDir()
-	configDir := filepath.Join(homeDir, ".config", "cc")
-	if err := hosting.Init(configDir); err != nil {
-		fmt.Printf("Error initializing hosting: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Handle subcommands
-	if len(args) == 0 {
-		listSites()
-		return
-	}
-
-	switch args[0] {
-	case "list", "ls":
-		listSites()
-	case "delete", "rm":
-		if len(args) < 2 {
-			fmt.Println("Error: site name required")
-			fmt.Println("Usage: cc-server sites delete <site-name>")
-			os.Exit(1)
-		}
-		deleteSite(args[1])
-	case "help":
-		fmt.Println("Usage: cc-server sites [command]")
-		fmt.Println()
-		fmt.Println("Commands:")
-		fmt.Println("  list, ls        List all deployed sites")
-		fmt.Println("  delete, rm      Delete a site")
-		fmt.Println("  help            Show this help")
-	default:
-		fmt.Printf("Unknown command: %s\n", args[0])
-		fmt.Println("Run 'cc-server sites help' for usage")
-		os.Exit(1)
-	}
-}
-
-// listSites displays all deployed sites
-func listSites() {
-	sites, err := hosting.ListSites()
-	if err != nil {
-		fmt.Printf("Error listing sites: %v\n", err)
-		os.Exit(1)
-	}
-
-	if len(sites) == 0 {
-		fmt.Println("No sites deployed yet.")
-		fmt.Println()
-		fmt.Println("Deploy a site:")
-		fmt.Println("  cd /path/to/site && cc-server deploy my-site --token <api-token>")
-		return
-	}
-
-	fmt.Println()
-	fmt.Printf("%-20s %-8s %-12s %s\n", "SITE", "FILES", "SIZE", "URL")
-	fmt.Printf("%-20s %-8s %-12s %s\n", "----", "-----", "----", "---")
-
-	for _, site := range sites {
-		size := formatSize(site.SizeBytes)
-		url := fmt.Sprintf("http://%s.localhost:4698", site.Name)
-		fmt.Printf("%-20s %-8d %-12s %s\n", site.Name, site.FileCount, size, url)
-	}
-	fmt.Println()
-}
-
-// deleteSite removes a deployed site
-func deleteSite(name string) {
-	if !hosting.SiteExists(name) {
-		fmt.Printf("Site '%s' does not exist\n", name)
-		os.Exit(1)
-	}
-
-	// Confirm deletion
-	fmt.Printf("Are you sure you want to delete '%s'? [y/N]: ", name)
-	var confirm string
-	fmt.Scanln(&confirm)
-
-	if strings.ToLower(confirm) != "y" && strings.ToLower(confirm) != "yes" {
-		fmt.Println("Cancelled")
-		return
-	}
-
-	if err := hosting.DeleteSite(name); err != nil {
-		fmt.Printf("Error deleting site: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Site '%s' deleted successfully\n", name)
-}
-
 // formatSize formats bytes to human readable format
 func formatSize(bytes int64) string {
 	const unit = 1024
@@ -940,4 +418,575 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// handleSetCredentials handles the set-credentials subcommand
+func handleSetCredentials() {
+	flags := flag.NewFlagSet("set-credentials", flag.ExitOnError)
+	username := flags.String("username", "", "Username for authentication")
+	password := flags.String("password", "", "Password for authentication")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: cc-server set-credentials --username <user> --password <pass>")
+		fmt.Println()
+		fmt.Println("Sets up authentication for the Command Center dashboard.")
+		fmt.Println("Credentials are stored securely in ~/.config/cc/config.json")
+		fmt.Println()
+		flags.PrintDefaults()
+	}
+
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		os.Exit(1)
+	}
+
+	if *username == "" {
+		fmt.Println("Error: --username is required")
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	if *password == "" {
+		fmt.Println("Error: --password is required")
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	// Load or create config
+	flagsConfig := config.ParseFlags()
+	configPath := config.ExpandPath(flagsConfig.ConfigPath)
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("Config file not found, creating new config at %s\n", configPath)
+			cfg = config.CreateDefaultConfig()
+		} else {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+	}
+
+	// Hash the password
+	passwordHash, err := auth.HashPassword(*password)
+	if err != nil {
+		log.Fatalf("Failed to hash password: %v", err)
+	}
+
+	// Update auth configuration
+	cfg.Auth.Enabled = true
+	cfg.Auth.Username = *username
+	cfg.Auth.PasswordHash = string(passwordHash)
+
+	// Save config
+	if err := config.SaveToFile(cfg, configPath); err != nil {
+		log.Fatalf("Failed to save config: %v", err)
+	}
+
+	// Success message
+	fmt.Println()
+	fmt.Println("✓ Authentication configured successfully!")
+	fmt.Println()
+	fmt.Printf("Username: %s\n", *username)
+	fmt.Println("Password: [hashed and saved]")
+	fmt.Println("Auth: enabled")
+	fmt.Println()
+	fmt.Println("To start the server:")
+	fmt.Println("  cc-server start")
+	fmt.Println()
+}
+
+// handleDeployCommand handles the deploy subcommand
+func handleDeployCommand() {
+	flags := flag.NewFlagSet("deploy", flag.ExitOnError)
+	path := flags.String("path", "", "Directory to deploy (required)")
+	domain := flags.String("domain", "", "Domain/subdomain for the site (required)")
+	server := flags.String("server", "http://localhost:4698", "Command Center server URL")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: cc-server deploy --path <PATH> --domain <SUBDOMAIN>")
+		fmt.Println()
+		fmt.Println("Deploys a directory to a Command Center server.")
+		fmt.Println()
+		flags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  cc-server deploy --path . --domain my-site")
+		fmt.Println("  cc-server deploy --path ~/Desktop/site --domain example --server https://cc.example.com")
+		fmt.Println("  cc-server deploy --domain my-site --path .")
+	}
+
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		os.Exit(1)
+	}
+
+	deployPath := *path
+	if deployPath == "" {
+		fmt.Println("Error: --path is required")
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	if *domain == "" {
+		fmt.Println("Error: --domain is required")
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	// Validate the path exists
+	if _, err := os.Stat(deployPath); os.IsNotExist(err) {
+		fmt.Printf("Error: Path '%s' does not exist\n", deployPath)
+		os.Exit(1)
+	}
+
+	// Load config to get API key
+	flagsConfig := config.ParseFlags()
+	cfg, err := config.Load(flagsConfig)
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get API key from config
+	token := cfg.GetAPIKey()
+	if token == "" {
+		fmt.Println("Error: No API key found in config")
+		fmt.Println("Please ensure you have an API key configured in ~/.config/cc/config.json")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Deploying %s to %s as '%s'...\n", deployPath, *server, *domain)
+
+	// Change to the deploy directory
+	originalDir, _ := os.Getwd()
+	if err := os.Chdir(deployPath); err != nil {
+		fmt.Printf("Error changing to directory %s: %v\n", deployPath, err)
+		os.Exit(1)
+	}
+	defer os.Chdir(originalDir)
+
+	// Create ZIP of the directory
+	zipBuffer, fileCount, err := createDeployZip(".")
+	if err != nil {
+		fmt.Printf("Error creating ZIP: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Zipped %d files (%d bytes)\n", fileCount, zipBuffer.Len())
+
+	// Create HTTP request
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Add domain field
+	if err := writer.WriteField("site_name", *domain); err != nil {
+		fmt.Printf("Error creating form: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Add file field
+	part, err := writer.CreateFormFile("file", "deploy.zip")
+	if err != nil {
+		fmt.Printf("Error creating file field: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := io.Copy(part, zipBuffer); err != nil {
+		fmt.Printf("Error writing file: %v\n", err)
+		os.Exit(1)
+	}
+	writer.Close()
+
+	// Make request
+	req, err := http.NewRequest("POST", *server+"/api/deploy", &body)
+	if err != nil {
+		fmt.Printf("Error creating request: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	// Send request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Error deploying: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check response
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("✗ Deployment failed!\n")
+		fmt.Printf("  Status: %s\n", resp.Status)
+		fmt.Printf("  Error: %s\n", string(respBody))
+		os.Exit(1)
+	}
+
+	// Parse success response
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBody, &result); err == nil {
+		if success, ok := result["success"].(bool); ok && success {
+			fmt.Printf("✓ Deployment successful!\n")
+			if site, ok := result["site"].(string); ok {
+				// Extract server URL for display
+				serverURL := *server
+				serverURL = strings.TrimPrefix(serverURL, "http://")
+				serverURL = strings.TrimPrefix(serverURL, "https://")
+				fmt.Printf("  Site: http://%s.%s\n", site, serverURL)
+			}
+			if fileCount, ok := result["file_count"].(float64); ok {
+				fmt.Printf("  Files: %.0f\n", fileCount)
+			}
+			if sizeBytes, ok := result["size_bytes"].(float64); ok {
+				fmt.Printf("  Size: %.0f bytes\n", sizeBytes)
+			}
+			return
+		}
+	}
+
+	fmt.Printf("✓ Deployment completed! (Status: %s)\n", resp.Status)
+}
+
+// handleStartCommand handles the start subcommand
+func handleStartCommand() {
+	flags := flag.NewFlagSet("start", flag.ExitOnError)
+	port := flags.String("port", "", "Server port (overrides config)")
+	db := flags.String("db", "", "Database file path (overrides config)")
+	configFile := flags.String("config", "", "Config file path")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: cc-server start [options]")
+		fmt.Println()
+		fmt.Println("Starts the Command Center server.")
+		fmt.Println()
+		flags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  cc-server start")
+		fmt.Println("  cc-server start --port 8080")
+		fmt.Println("  cc-server start --config /path/to/config.json")
+	}
+
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		os.Exit(1)
+	}
+
+	// Set up configuration
+	if !*quiet {
+		log.Println("Starting Command Center...")
+	}
+
+	// Use default flags structure but override with our specific flags
+	cliFlags := config.ParseFlags()
+	if *port != "" {
+		cliFlags.Port = *port
+	}
+	if *db != "" {
+		cliFlags.DBPath = *db
+	}
+	if *configFile != "" {
+		cliFlags.ConfigPath = *configFile
+	}
+
+	// Load configuration
+	cfg, err := config.Load(cliFlags)
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Ensure secure file permissions
+	security.EnsureSecurePermissions(config.ExpandPath(cliFlags.ConfigPath), cfg.Database.Path)
+
+	// Display startup information
+	fmt.Println()
+	fmt.Println("═══════════════════════════════════════════════════════════")
+	fmt.Println("           Command Center v0.3.0 - Starting Up")
+	fmt.Println("═══════════════════════════════════════════════════════════")
+	fmt.Println()
+	fmt.Printf("  Environment:  %s\n", cfg.Server.Env)
+	fmt.Printf("  Port:         %s\n", cfg.Server.Port)
+	fmt.Printf("  Domain:       %s\n", cfg.Server.Domain)
+	fmt.Printf("  Database:     %s\n", cfg.Database.Path)
+	fmt.Printf("  Config File:  %s\n", config.ExpandPath(cliFlags.ConfigPath))
+	fmt.Println()
+
+	// Initialize session store
+	sessionStore := auth.NewSessionStore(auth.SessionTTL)
+	defer sessionStore.Stop()
+
+	// Initialize rate limiter
+	rateLimiter := auth.NewRateLimiter()
+
+	// Initialize auth handlers with session store and rate limiter
+	handlers.InitAuth(sessionStore, rateLimiter)
+
+	// Display auth status with warnings
+	if cfg.Auth.Enabled {
+		fmt.Printf("  Authentication: ✓ Enabled (user: %s)\n", cfg.Auth.Username)
+	} else {
+		fmt.Println("  Authentication: ✗ Disabled")
+		if cfg.IsProduction() {
+			fmt.Println()
+			fmt.Println("  ⚠️  WARNING: Running in PRODUCTION without authentication!")
+			fmt.Println("  ⚠️  Your dashboard is publicly accessible.")
+			fmt.Println()
+			fmt.Println("  To enable authentication, run:")
+			fmt.Printf("    cc-server set-credentials --username admin --password secret123\n")
+			fmt.Println()
+		}
+	}
+	fmt.Println("═══════════════════════════════════════════════════════════")
+	fmt.Println()
+
+	// Initialize database
+	if err := database.Init(cfg.Database.Path); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	// Initialize audit logging
+	if err := audit.Init(database.GetDB()); err != nil {
+		log.Fatalf("Failed to initialize audit logging: %v", err)
+	}
+
+	// Initialize hosting system
+	configDir := filepath.Dir(cfg.Database.Path)
+	if err := hosting.Init(configDir); err != nil {
+		log.Fatalf("Failed to initialize hosting: %v", err)
+	}
+	log.Printf("Hosting initialized: %s", hosting.GetSitesDir())
+
+	// Generate mock data in development mode
+	if cfg.IsDevelopment() {
+		log.Println("Development mode: Checking for existing data...")
+		// Only generate mock data if database is empty
+		db := database.GetDB()
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
+		if err == nil && count == 0 {
+			log.Println("Database is empty, generating mock data...")
+			if err := database.GenerateMockData(); err != nil {
+				log.Printf("Warning: Failed to generate mock data: %v", err)
+			}
+		} else {
+			log.Printf("Database already has %d events, skipping mock data generation", count)
+		}
+	}
+
+	// Create dashboard router (existing dashboard functionality)
+	dashboardMux := http.NewServeMux()
+
+	// Authentication routes
+	dashboardMux.HandleFunc("/login", handlers.LoginPageHandler)
+	dashboardMux.HandleFunc("/api/login", handlers.LoginHandler)
+	dashboardMux.HandleFunc("/api/logout", handlers.LogoutHandler)
+	dashboardMux.HandleFunc("/api/auth/status", handlers.AuthStatusHandler)
+
+	// API routes - Tracking
+	dashboardMux.HandleFunc("/track", handlers.TrackHandler)
+	dashboardMux.HandleFunc("/pixel.gif", handlers.PixelHandler)
+	dashboardMux.HandleFunc("/r/", handlers.RedirectHandler)
+	dashboardMux.HandleFunc("/webhook/", handlers.WebhookHandler)
+
+	// API routes - Dashboard
+	dashboardMux.HandleFunc("/api/stats", handlers.StatsHandler)
+	dashboardMux.HandleFunc("/api/events", handlers.EventsHandler)
+	dashboardMux.HandleFunc("/api/redirects", handlers.RedirectsHandler)
+	dashboardMux.HandleFunc("/api/domains", handlers.DomainsHandler)
+	dashboardMux.HandleFunc("/api/tags", handlers.TagsHandler)
+	dashboardMux.HandleFunc("/api/webhooks", handlers.WebhooksHandler)
+	dashboardMux.HandleFunc("/api/config", handlers.ConfigHandler)
+
+	// API routes - Hosting/Deploy
+	dashboardMux.HandleFunc("/api/deploy", handlers.DeployHandler)
+	dashboardMux.HandleFunc("/api/sites", handlers.SitesHandler)
+	dashboardMux.HandleFunc("/api/keys", handlers.APIKeysHandler)
+	dashboardMux.HandleFunc("/api/deployments", handlers.DeploymentsHandler)
+	dashboardMux.HandleFunc("/api/envvars", handlers.EnvVarsHandler)
+
+	// Hosting management page
+	dashboardMux.HandleFunc("/hosting", handlers.HostingPageHandler)
+
+	// Static files
+	fs := http.FileServer(http.Dir("./web/static"))
+	dashboardMux.Handle("/static/", http.StripPrefix("/static/", fs))
+
+	// Dashboard (root)
+	dashboardMux.HandleFunc("/", handlers.DashboardHandler)
+
+	// Health check (available on both dashboard and sites)
+	dashboardMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if err := database.HealthCheck(); err != nil {
+			http.Error(w, "Database unhealthy", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Create the root handler with host-based routing
+	rootHandler := createRootHandler(cfg, dashboardMux, sessionStore)
+
+	// Apply middleware (order: tracing -> logging -> body limit -> security -> cors -> recovery -> root)
+	handler := middleware.RequestTracing(
+		loggingMiddleware(
+			middleware.BodySizeLimit(middleware.MaxBodySize)(
+				middleware.SecurityHeaders(
+					corsMiddleware(
+						recoveryMiddleware(rootHandler),
+					),
+				),
+			),
+		),
+	)
+
+	// Create server
+	srv := &http.Server{
+		Addr:         ":" + cfg.Server.Port,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Write PID file for stop command
+	pidFile := filepath.Join(filepath.Dir(cfg.Database.Path), "cc-server.pid")
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		log.Printf("Warning: Failed to write PID file: %v", err)
+	}
+
+	// Start server in a goroutine
+	go func() {
+		log.Printf("Server starting on :%s", cfg.Server.Port)
+		log.Printf("Dashboard: http://localhost:%s", cfg.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal for graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	// Clean up PID file
+	os.Remove(pidFile)
+
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server stopped")
+}
+
+// handleStopCommand handles the stop subcommand
+func handleStopCommand() {
+	flags := flag.NewFlagSet("stop", flag.ExitOnError)
+
+	flags.Usage = func() {
+		fmt.Println("Usage: cc-server stop")
+		fmt.Println()
+		fmt.Println("Stops a running Command Center server.")
+		fmt.Println()
+		fmt.Println("Looks for a PID file in ~/.config/cc/ to gracefully shutdown the server.")
+	}
+
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		os.Exit(1)
+	}
+
+	// Get default config directory to find PID file
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+	pidFile := filepath.Join(homeDir, ".config", "cc", "cc-server.pid")
+
+	// Read PID file
+	pidData, err := os.ReadFile(pidFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No running server found (no PID file)")
+			os.Exit(1)
+		}
+		log.Fatalf("Failed to read PID file: %v", err)
+	}
+
+	var pid int
+	_, err = fmt.Sscanf(string(pidData), "%d", &pid)
+	if err != nil {
+		log.Fatalf("Invalid PID file format: %v", err)
+	}
+
+	// Check if process is running
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		log.Fatalf("Failed to find process: %v", err)
+	}
+
+	// Send SIGTERM for graceful shutdown
+	err = process.Signal(syscall.SIGTERM)
+	if err != nil {
+		fmt.Printf("Warning: Could not send signal to process %d: %v\n", pid, err)
+		fmt.Println("The process may have already stopped")
+	} else {
+		fmt.Printf("Sent shutdown signal to process %d\n", pid)
+		fmt.Println("Waiting for graceful shutdown...")
+
+		// Wait a bit and check if process is still running
+		time.Sleep(2 * time.Second)
+		err = process.Signal(syscall.Signal(0))
+		if err == nil {
+			fmt.Println("Process is still running, sending forceful shutdown...")
+			process.Kill()
+		}
+	}
+
+	// Clean up PID file
+	os.Remove(pidFile)
+	fmt.Println("Server stopped successfully")
+}
+
+// printUsage displays the usage information
+func printUsage() {
+	fmt.Println("Command Center v0.3.0 - Analytics & Personal Cloud Platform")
+	fmt.Println()
+	fmt.Println("USAGE:")
+	fmt.Println("  cc-server <command> [options]")
+	fmt.Println()
+	fmt.Println("COMMANDS:")
+	fmt.Println("  set-credentials  Set up authentication credentials")
+	fmt.Println("  deploy           Deploy a directory to a site")
+	fmt.Println("  start            Start the Command Center server")
+	fmt.Println("  stop             Stop a running Command Center server")
+	fmt.Println("  --help, -h       Show this help")
+	fmt.Println("  --version        Show version and exit")
+	fmt.Println()
+	fmt.Println("EXAMPLES:")
+	fmt.Println("  # Set up authentication")
+	fmt.Println("  cc-server set-credentials --username admin --password secret123")
+	fmt.Println()
+	fmt.Println("  # Start the server")
+	fmt.Println("  cc-server start")
+	fmt.Println()
+	fmt.Println("  # Deploy a site")
+	fmt.Println("  cc-server deploy ./my-site --domain my-app")
+	fmt.Println()
+	fmt.Println("  # Deploy to remote server")
+	fmt.Println("  cc-server deploy ./build --domain app --server https://cc.example.com")
+	fmt.Println()
+	fmt.Println("  # Stop the server")
+	fmt.Println("  cc-server stop")
+	fmt.Println()
+	fmt.Println("For more information, visit: https://github.com/jikku/command-center")
 }

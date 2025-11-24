@@ -67,6 +67,7 @@ func requiresAuth(path string) bool {
 		"/static/",
 		"/login",
 		"/api/login",
+		"/api/deploy",
 		"/health",
 	}
 

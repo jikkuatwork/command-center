@@ -36,47 +36,70 @@ cd command-center
 # Build the server
 go build -o cc-server ./cmd/server
 
-# Run the server
-./cc-server
+# Set up authentication (recommended)
+./cc-server set-credentials --username admin --password secret123
+
+# Start the server
+./cc-server start
 ```
 
 The server starts on **port 4698**. Access the dashboard at `http://localhost:4698`
 
-### Setup Authentication
+### CLI Commands
+
+Command Center uses a subcommand-based interface:
 
 ```bash
-# Set up admin credentials
-./cc-server --username admin --password your-secure-password
+# Set up authentication
+./cc-server set-credentials --username admin --password secret123
 
 # Start the server
-./cc-server
+./cc-server start [--port 8080] [--config /path/to/config.json]
+
+# Stop the server
+./cc-server stop
+
+# Deploy a site
+./cc-server deploy --path ./my-site --domain my-app
+
+# Deploy to remote server
+./cc-server deploy --path ./build --domain app --server https://cc.example.com
+
+# Get help
+./cc-server --help
+./cc-server deploy --help
+./cc-server start --help
 ```
+
+**Note**: Flags must come before positional arguments. The `~/.config/cc/` directory is created automatically with secure permissions.
 
 ## Personal Cloud Usage
 
 ### 1. Create an API Key
 
-Visit `http://localhost:4698/hosting` and create a new deploy key.
-
-Save the token to `~/.cc-token`:
-```bash
-echo "your-api-token" > ~/.cc-token
-```
+Visit `http://localhost:4698/hosting` and create a new deploy key. The API key is automatically saved to `~/.config/cc/config.json`.
 
 ### 2. Deploy a Static Site
 
 ```bash
 # In your website directory
 cd my-website/
-cc-server deploy my-site
+cc-server deploy --path . --domain my-site
 
-# Or with explicit token
-cc-server deploy my-site --token your-api-token
+# Or deploy any directory
+cc-server deploy --path /path/to/site --domain my-app
 ```
 
 Your site is now live at `http://my-site.localhost:4698`
 
-### 3. Create a Serverless App
+### 3. Deploy to Remote Server
+
+```bash
+# Deploy to a remote Command Center instance
+cc-server deploy --path ./build --domain my-app --server https://cc.example.com
+```
+
+### 4. Create a Serverless App
 
 Add a `main.js` file to enable serverless:
 
@@ -88,11 +111,12 @@ res.json({ message: `Hello, ${name}!` });
 
 Deploy and access:
 ```bash
-curl http://my-site.localhost:4698/?name=Claude
+cc-server deploy --path . --domain my-app
+curl http://my-app.localhost:4698/?name=Claude
 # {"message":"Hello, Claude!"}
 ```
 
-### 4. Use the Key-Value Store
+### 5. Use the Key-Value Store
 
 ```javascript
 // main.js - Counter app with persistent storage
@@ -103,11 +127,11 @@ res.json({ visits: count });
 ```
 
 Available `db` methods:
-- `db.get(key)` - Retrieve a value
-- `db.set(key, value)` - Store a value (auto-serializes objects)
+- `db.get(key)` - Retrieve a value (auto-parses JSON)
+- `db.set(key, value)` - Store a value (auto-stringifies)
 - `db.delete(key)` - Remove a key
 
-### 5. Use Environment Variables
+### 6. Use Environment Variables
 
 Set secrets in the Hosting UI, then access in JavaScript:
 
@@ -117,7 +141,7 @@ const apiKey = process.env.OPENAI_API_KEY;
 res.json({ configured: !!apiKey });
 ```
 
-### 6. WebSocket Broadcasting
+### 7. WebSocket Broadcasting
 
 ```javascript
 // main.js - Broadcast to all connected clients
@@ -274,11 +298,19 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/command-center
-ExecStart=/opt/command-center/cc-server
+ExecStart=/opt/command-center/cc-server start
 Restart=always
+PIDFile=/opt/command-center/cc-server.pid
 
 [Install]
 WantedBy=multi-user.target
+```
+
+Start/stop commands:
+```bash
+sudo systemctl start command-center
+sudo systemctl stop command-center
+sudo systemctl status command-center
 ```
 
 ## Architecture
