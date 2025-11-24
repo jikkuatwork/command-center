@@ -1,4 +1,4 @@
-# fazt.sh v0.3.0
+# fazt.sh v0.4.0
 
 A unified analytics, monitoring, tracking platform, and **Personal Cloud** with static hosting and serverless JavaScript functions.
 
@@ -36,8 +36,8 @@ cd fazt.sh
 # Build the server
 go build -o fazt ./cmd/server
 
-# Set up authentication (recommended)
-./fazt server set-credentials --username admin --password secret123
+# Initialize configuration (first-time setup)
+./fazt server init --username admin --password secret123 --domain https://fazt.example.com
 
 # Start the server
 ./fazt server start
@@ -51,14 +51,17 @@ fazt.sh uses a server/client structure:
 
 ```bash
 # Server Management
-./fazt server set-credentials --username admin --password secret123
+./fazt server init --username admin --password secret123 --domain https://fazt.example.com
+./fazt server status
+./fazt server set-credentials --username admin --password newsecret
+./fazt server set-config --domain https://new.example.com --port 8080 --env production
 ./fazt server start [--port 8080] [--config /path/to/config.json)]
 ./fazt server stop
 
 # Client/Deployment
 ./fazt client set-auth-token --token <TOKEN>
 ./fazt client deploy --path ./my-site --domain my-app
-./fazt client deploy --path ./build --domain app --server https://fazt.sh
+./fazt deploy --path ./my-site --domain my-app  # Shortcut alias
 
 # Help
 ./fazt --help              # Main help

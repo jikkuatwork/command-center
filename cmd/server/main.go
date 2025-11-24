@@ -957,7 +957,13 @@ func handleDeployCommand() {
 		fmt.Println("  cc-server deploy --domain my-site --path .")
 	}
 
-	if err := flags.Parse(os.Args[3:]); err != nil {
+	// Determine args offset based on whether this is "deploy" or "client deploy"
+	argsOffset := 3
+	if len(os.Args) > 1 && os.Args[1] == "deploy" {
+		argsOffset = 2
+	}
+
+	if err := flags.Parse(os.Args[argsOffset:]); err != nil {
 		os.Exit(1)
 	}
 

@@ -28,12 +28,12 @@ FAZT_BIN="./fazt"
 # Helper functions
 pass() {
     echo -e "${GREEN}✓${NC} $1"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 }
 
 fail() {
     echo -e "${RED}✗${NC} $1"
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
 }
 
 info() {
@@ -100,7 +100,7 @@ else
 fi
 
 # Verify password is hashed (not plaintext)
-if grep -q '"password_hash": "$2a$' "$TEST_CONFIG"; then
+if grep -q '"password_hash": "\$2a\$' "$TEST_CONFIG"; then
     pass "Init hashes password (bcrypt)"
 else
     fail "Password not hashed correctly"
@@ -166,7 +166,7 @@ $FAZT_BIN server set-credentials \
     --password newpassword456 \
     --config "$TEST_CONFIG" >/dev/null 2>&1
 
-if grep -q '"password_hash": "$2a$' "$TEST_CONFIG"; then
+if grep -q '"password_hash": "\$2a\$' "$TEST_CONFIG"; then
     pass "set-credentials updates password"
 else
     fail "Password not updated"

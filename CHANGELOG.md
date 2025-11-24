@@ -1,6 +1,38 @@
 # Changelog
 
-All notable changes to Command Center will be documented in this file.
+All notable changes to fazt.sh will be documented in this file.
+
+## [0.4.0] - 2025-11-24
+
+### Added
+
+**CLI Improvements**
+- `fazt server init` command for first-time server initialization with required credentials and domain
+- `fazt server status` command to view current configuration and server state
+- `fazt server set-config` command for updating server settings (domain, port, environment)
+- `fazt deploy` alias as a top-level shortcut for `fazt client deploy`
+
+**Security Enhancements**
+- Authentication now always required (removed optional `auth.enabled` flag)
+- Secure by default: auth credentials mandatory in all configurations
+- Config files always created with 0600 permissions
+- Config directories always created with 0700 permissions
+
+**Configuration Management**
+- Removed `auth.enabled` field from config structure
+- Improved config validation to always require auth credentials
+- Better error messages for missing or invalid configurations
+- Unified command structure for better discoverability
+
+### Changed
+- `fazt server set-credentials` now focuses only on updating credentials (no longer creates config)
+- All server initialization must go through `fazt server init` command
+- Config structure simplified: auth section no longer has "enabled" field
+
+### Fixed
+- CLI argument parsing for `fazt deploy` alias now works correctly with --help flag
+- Integration test suite bugs (arithmetic expressions with set -e, bcrypt pattern matching)
+- Consistent error handling across all commands
 
 ## [0.2.0] - 2024-11-12
 
