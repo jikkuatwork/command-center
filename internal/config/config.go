@@ -35,7 +35,6 @@ type DatabaseConfig struct {
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	Enabled      bool   `json:"enabled"`
 	Username     string `json:"username"`
 	PasswordHash string `json:"password_hash"` // bcrypt hash
 }
@@ -128,8 +127,8 @@ func Load(flags *CLIFlags) (*Config, error) {
 	}
 
 	appConfig = cfg
-	log.Printf("Configuration loaded: Environment=%s, Port=%s, Auth=%t",
-		cfg.Server.Env, cfg.Server.Port, cfg.Auth.Enabled)
+	log.Printf("Configuration loaded: Environment=%s, Port=%s, Auth=required",
+		cfg.Server.Env, cfg.Server.Port)
 
 	return appConfig, nil
 }
@@ -187,7 +186,6 @@ func CreateDefaultConfig() *Config {
 			Path: defaultDBPath,
 		},
 		Auth: AuthConfig{
-			Enabled:      false,
 			Username:     "",
 			PasswordHash: "",
 		},
@@ -265,14 +263,12 @@ func (c *Config) Validate() error {
 	// Expand database path
 	c.Database.Path = ExpandPath(c.Database.Path)
 
-	// Validate auth config
-	if c.Auth.Enabled {
-		if c.Auth.Username == "" {
-			return errors.New("auth enabled but username is empty")
-		}
-		if c.Auth.PasswordHash == "" {
-			return errors.New("auth enabled but password hash is empty")
-		}
+	// Validate auth config (v0.4.0: auth always required)
+	if c.Auth.Username == "" {
+		return errors.New("auth username is required")
+	}
+	if c.Auth.PasswordHash == "" {
+		return errors.New("auth password hash is required")
 	}
 
 	return nil

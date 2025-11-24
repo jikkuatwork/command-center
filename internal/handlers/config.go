@@ -27,9 +27,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			"path": cfg.Database.Path,
 		},
 		"auth": map[string]interface{}{
-			"enabled":  cfg.Auth.Enabled,
 			"username": cfg.Auth.Username,
 			// Never expose password hash
+			// enabled field removed in v0.4.0 - auth is always required
 		},
 		"ntfy": map[string]interface{}{
 			"topic": cfg.Ntfy.Topic,

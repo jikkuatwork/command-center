@@ -6,21 +6,13 @@ import (
 	"strings"
 
 	"github.com/jikku/command-center/internal/auth"
-	"github.com/jikku/command-center/internal/config"
 )
 
 // AuthMiddleware checks if a user is authenticated before allowing access to protected routes
 func AuthMiddleware(sessionStore *auth.SessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cfg := config.Get()
-
-			// If auth is disabled, allow all requests
-			if !cfg.Auth.Enabled {
-				next.ServeHTTP(w, r)
-				return
-			}
-
+			// v0.4.0: Auth is always required, no longer configurable
 			// Check if the path requires authentication
 			if !requiresAuth(r.URL.Path) {
 				next.ServeHTTP(w, r)

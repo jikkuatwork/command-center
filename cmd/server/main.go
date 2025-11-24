@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -28,10 +30,11 @@ import (
 	"github.com/jikku/command-center/internal/hosting"
 	"github.com/jikku/command-center/internal/middleware"
 	"github.com/jikku/command-center/internal/security"
+	"golang.org/x/crypto/bcrypt"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const Version = "v0.3.0"
+const Version = "v0.4.0"
 
 var (
 	showVersion = flag.Bool("version", false, "Show version and exit")
@@ -64,11 +67,216 @@ func main() {
 		handleServerCommand(os.Args[2:])
 	case "client":
 		handleClientCommand(os.Args[2:])
+	case "deploy":
+		handleDeployCommand() // Alias for client deploy
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+// ===================================================================================
+// CLI Command Functions (v0.4.0)
+// ===================================================================================
+
+// initCommand initializes server configuration for first-time setup
+func initCommand(username, password, domain, port, env, configPath string) error {
+	// Check if config already exists
+	if _, err := os.Stat(configPath); err == nil {
+		return fmt.Errorf("Error: Server already initialized\nConfig exists at: %s", configPath)
+	}
+
+	// Validate required fields
+	if username == "" || password == "" || domain == "" {
+		return errors.New("Error: username, password, and domain are required")
+	}
+
+	// Validate port
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("Error: invalid port '%s' (must be 1-65535)", port)
+	}
+
+	// Validate environment
+	if env != "development" && env != "production" {
+		return fmt.Errorf("Error: invalid environment '%s' (must be 'development' or 'production')", env)
+	}
+
+	// Hash password with bcrypt cost 12
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return fmt.Errorf("Error: failed to hash password: %v", err)
+	}
+
+	// Create config directory with secure permissions
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return fmt.Errorf("Error: failed to create config directory: %v", err)
+	}
+
+	// Create config
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:   port,
+			Domain: domain,
+			Env:    env,
+		},
+		Database: config.DatabaseConfig{
+			Path: filepath.Join(configDir, "data.db"),
+		},
+		Auth: config.AuthConfig{
+			Username:     username,
+			PasswordHash: string(passwordHash),
+		},
+		Ntfy: config.NtfyConfig{
+			Topic: "",
+			URL:   "https://ntfy.sh",
+		},
+	}
+
+	// Save config with secure permissions
+	if err := config.SaveToFile(cfg, configPath); err != nil {
+		return fmt.Errorf("Error: failed to save config: %v", err)
+	}
+
+	return nil
+}
+
+// setCredentialsCommand updates username and/or password in existing config
+func setCredentialsCommand(username, password, configPath string) error {
+	// Validate at least one field is provided
+	if username == "" && password == "" {
+		return errors.New("Error: at least one of --username or --password is required")
+	}
+
+	// Load existing config
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("Error: Config not found at %s\nRun 'fazt server init' first", configPath)
+		}
+		return fmt.Errorf("Error: Failed to load config: %v", err)
+	}
+
+	// Update provided fields
+	if username != "" {
+		cfg.Auth.Username = username
+	}
+	if password != "" {
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+		if err != nil {
+			return fmt.Errorf("Error: Failed to hash password: %v", err)
+		}
+		cfg.Auth.PasswordHash = string(passwordHash)
+	}
+
+	// Save config
+	if err := config.SaveToFile(cfg, configPath); err != nil {
+		return fmt.Errorf("Error: Failed to save config: %v", err)
+	}
+
+	return nil
+}
+
+// setConfigCommand updates server configuration settings
+func setConfigCommand(domain, port, env, configPath string) error {
+	// Validate at least one field is provided
+	if domain == "" && port == "" && env == "" {
+		return errors.New("Error: at least one of --domain, --port, or --env is required")
+	}
+
+	// Load existing config
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("Error: Config not found at %s\nRun 'fazt server init' first", configPath)
+		}
+		return fmt.Errorf("Error: Failed to load config: %v", err)
+	}
+
+	// Validate and update port if provided
+	if port != "" {
+		portNum, err := strconv.Atoi(port)
+		if err != nil || portNum < 1 || portNum > 65535 {
+			return fmt.Errorf("Error: invalid port '%s' (must be 1-65535)", port)
+		}
+		cfg.Server.Port = port
+	}
+
+	// Validate and update environment if provided
+	if env != "" {
+		if env != "development" && env != "production" {
+			return fmt.Errorf("Error: invalid environment '%s' (must be 'development' or 'production')", env)
+		}
+		cfg.Server.Env = env
+	}
+
+	// Update domain if provided
+	if domain != "" {
+		cfg.Server.Domain = domain
+	}
+
+	// Validate the updated config
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("Error: Invalid configuration: %v", err)
+	}
+
+	// Save config
+	if err := config.SaveToFile(cfg, configPath); err != nil {
+		return fmt.Errorf("Error: Failed to save config: %v", err)
+	}
+
+	return nil
+}
+
+// statusCommand displays current configuration and server status
+func statusCommand(configPath, configDir string) (string, error) {
+	// Load config
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("Error: Config not found at %s\nRun 'fazt server init' first", configPath)
+	}
+
+	var output strings.Builder
+	output.WriteString("Server Status\n")
+	output.WriteString("═══════════════════════════════════════════════════════════\n")
+	output.WriteString(fmt.Sprintf("Config:       %s\n", configPath))
+	output.WriteString(fmt.Sprintf("Domain:       %s\n", cfg.Server.Domain))
+	output.WriteString(fmt.Sprintf("Port:         %s\n", cfg.Server.Port))
+	output.WriteString(fmt.Sprintf("Environment:  %s\n", cfg.Server.Env))
+	output.WriteString(fmt.Sprintf("Username:     %s\n", cfg.Auth.Username))
+
+	// Check database file
+	if stat, err := os.Stat(cfg.Database.Path); err == nil {
+		size := float64(stat.Size()) / (1024 * 1024) // Convert to MB
+		output.WriteString(fmt.Sprintf("Database:     %s (%.1f MB)\n", cfg.Database.Path, size))
+	} else {
+		output.WriteString(fmt.Sprintf("Database:     %s (not found)\n", cfg.Database.Path))
+	}
+
+	// Check sites directory
+	sitesDir := filepath.Join(configDir, "sites")
+	if stat, err := os.Stat(sitesDir); err == nil && stat.IsDir() {
+		if entries, err := os.ReadDir(sitesDir); err == nil {
+			output.WriteString(fmt.Sprintf("Sites:        %s/ (%d sites)\n", sitesDir, len(entries)))
+		} else {
+			output.WriteString(fmt.Sprintf("Sites:        %s/ (error reading)\n", sitesDir))
+		}
+	} else {
+		output.WriteString(fmt.Sprintf("Sites:        %s/ (not found)\n", sitesDir))
+	}
+
+	// Check PID file for server status
+	pidFile := filepath.Join(configDir, "cc-server.pid")
+	if pidData, err := os.ReadFile(pidFile); err == nil {
+		pidStr := strings.TrimSpace(string(pidData))
+		output.WriteString(fmt.Sprintf("\nServer:       ● Running (PID: %s)\n", pidStr))
+	} else {
+		output.WriteString("\nServer:       ○ Not running\n")
+	}
+
+	return output.String(), nil
 }
 
 // handleServerCommand handles server-related subcommands
@@ -82,8 +290,14 @@ func handleServerCommand(args []string) {
 	subcommand := args[0]
 
 	switch subcommand {
+	case "init":
+		handleInitCommand()
 	case "set-credentials":
 		handleSetCredentials()
+	case "set-config":
+		handleSetConfigCommand()
+	case "status":
+		handleStatusCommand()
 	case "start":
 		handleStartCommand()
 	case "stop":
@@ -471,72 +685,192 @@ func handleSetCredentials() {
 	flags := flag.NewFlagSet("set-credentials", flag.ExitOnError)
 	username := flags.String("username", "", "Username for authentication")
 	password := flags.String("password", "", "Password for authentication")
+	configPath := flags.String("config", "", "Config file path")
 
 	flags.Usage = func() {
-		fmt.Println("Usage: fazt server set-credentials --username <user> --password <pass>")
+		fmt.Println("Usage: fazt server set-credentials [flags]")
 		fmt.Println()
-		fmt.Println("Sets up authentication for the fazt.sh dashboard.")
-		fmt.Println("Credentials are stored securely in ~/.config/fazt/config.json")
+		fmt.Println("Update authentication credentials for the fazt.sh dashboard.")
+		fmt.Println("At least one of --username or --password must be provided.")
 		fmt.Println()
 		flags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  fazt server set-credentials --username newuser")
+		fmt.Println("  fazt server set-credentials --password newpass")
+		fmt.Println("  fazt server set-credentials --username admin --password secret123")
+		fmt.Println("  fazt server set-credentials --username admin --config /path/to/config.json")
 	}
 
 	if err := flags.Parse(os.Args[3:]); err != nil {
 		os.Exit(1)
 	}
 
-	if *username == "" {
-		fmt.Println("Error: --username is required")
-		flags.Usage()
+	// Get config path
+	if *configPath == "" {
+		homeDir, _ := os.UserHomeDir()
+		*configPath = filepath.Join(homeDir, ".config", "fazt", "config.json")
+	}
+
+	// Call command function
+	if err := setCredentialsCommand(*username, *password, *configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 
-	if *password == "" {
-		fmt.Println("Error: --password is required")
-		flags.Usage()
+	fmt.Println("✓ Credentials updated successfully")
+	if *username != "" {
+		fmt.Printf("  Username: %s\n", *username)
+	}
+	if *password != "" {
+		fmt.Println("  Password: [updated and hashed]")
+	}
+	fmt.Println()
+}
+
+// handleInitCommand handles the init subcommand
+func handleInitCommand() {
+	flags := flag.NewFlagSet("init", flag.ExitOnError)
+	username := flags.String("username", "", "Admin username (required)")
+	password := flags.String("password", "", "Admin password (required)")
+	domain := flags.String("domain", "", "Server domain (required)")
+	port := flags.String("port", "4698", "Server port")
+	env := flags.String("env", "development", "Environment (development|production)")
+	configPath := flags.String("config", "", "Config file path")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: fazt server init [flags]")
+		fmt.Println()
+		fmt.Println("Initialize fazt.sh server configuration")
+		fmt.Println()
+		flags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  fazt server init --username admin --password secret123 --domain https://mydomain.com")
+		fmt.Println("  fazt server init --username admin --password secret123 --domain https://mydomain.com --port 8080 --env production")
+		fmt.Println("  fazt server init --username admin --password secret123 --domain https://mydomain.com --config /path/to/config.json")
+	}
+
+	if err := flags.Parse(os.Args[3:]); err != nil {
 		os.Exit(1)
 	}
 
-	// Load or create config
-	flagsConfig := config.ParseFlags()
-	configPath := config.ExpandPath(flagsConfig.ConfigPath)
-	cfg, err := config.LoadFromFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Printf("Config file not found, creating new config at %s\n", configPath)
-			cfg = config.CreateDefaultConfig()
-		} else {
-			log.Fatalf("Failed to load config: %v", err)
-		}
+	// Get config path
+	if *configPath == "" {
+		homeDir, _ := os.UserHomeDir()
+		*configPath = filepath.Join(homeDir, ".config", "fazt", "config.json")
 	}
 
-	// Hash the password
-	passwordHash, err := auth.HashPassword(*password)
-	if err != nil {
-		log.Fatalf("Failed to hash password: %v", err)
+	// Call command function
+	if err := initCommand(*username, *password, *domain, *port, *env, *configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
 	}
 
-	// Update auth configuration
-	cfg.Auth.Enabled = true
-	cfg.Auth.Username = *username
-	cfg.Auth.PasswordHash = string(passwordHash)
-
-	// Save config
-	if err := config.SaveToFile(cfg, configPath); err != nil {
-		log.Fatalf("Failed to save config: %v", err)
-	}
-
-	// Success message
-	fmt.Println()
-	fmt.Println("✓ Authentication configured successfully!")
-	fmt.Println()
-	fmt.Printf("Username: %s\n", *username)
-	fmt.Println("Password: [hashed and saved]")
-	fmt.Println("Auth: enabled")
+	fmt.Println("✓ Server initialized successfully")
+	fmt.Printf("  Config saved to: %s\n", *configPath)
 	fmt.Println()
 	fmt.Println("To start the server:")
-	fmt.Println("  cc-server start")
+	fmt.Println("  fazt server start")
 	fmt.Println()
+}
+
+// handleSetConfigCommand handles the set-config subcommand
+func handleSetConfigCommand() {
+	flags := flag.NewFlagSet("set-config", flag.ExitOnError)
+	domain := flags.String("domain", "", "Server domain")
+	port := flags.String("port", "", "Server port")
+	env := flags.String("env", "", "Environment (development|production)")
+	configPath := flags.String("config", "", "Config file path")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: fazt server set-config [flags]")
+		fmt.Println()
+		fmt.Println("Update server configuration settings")
+		fmt.Println()
+		flags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  fazt server set-config --domain https://newdomain.com")
+		fmt.Println("  fazt server set-config --port 8080")
+		fmt.Println("  fazt server set-config --env production")
+		fmt.Println("  fazt server set-config --domain https://prod.com --port 443 --env production")
+		fmt.Println("  fazt server set-config --domain https://prod.com --config /path/to/config.json")
+	}
+
+	if err := flags.Parse(os.Args[3:]); err != nil {
+		os.Exit(1)
+	}
+
+	// Get config path
+	if *configPath == "" {
+		homeDir, _ := os.UserHomeDir()
+		*configPath = filepath.Join(homeDir, ".config", "fazt", "config.json")
+	}
+
+	// Call command function
+	if err := setConfigCommand(*domain, *port, *env, *configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("✓ Configuration updated successfully")
+	if *domain != "" {
+		fmt.Printf("  Domain: %s\n", *domain)
+	}
+	if *port != "" {
+		fmt.Printf("  Port: %s\n", *port)
+	}
+	if *env != "" {
+		fmt.Printf("  Environment: %s\n", *env)
+	}
+	fmt.Println()
+}
+
+// handleStatusCommand handles the status subcommand
+func handleStatusCommand() {
+	flags := flag.NewFlagSet("status", flag.ExitOnError)
+	configPath := flags.String("config", "", "Config file path")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: fazt server status [flags]")
+		fmt.Println()
+		fmt.Println("Display server configuration and status")
+		fmt.Println()
+		flags.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Shows:")
+		fmt.Println("  Configuration file location")
+		fmt.Println("  Server settings (domain, port, environment)")
+		fmt.Println("  Authentication status")
+		fmt.Println("  Database information")
+		fmt.Println("  Site deployment directory")
+		fmt.Println("  Server running status")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  fazt server status")
+		fmt.Println("  fazt server status --config /path/to/config.json")
+	}
+
+	if err := flags.Parse(os.Args[3:]); err != nil {
+		os.Exit(1)
+	}
+
+	// Get config path and directory
+	if *configPath == "" {
+		homeDir, _ := os.UserHomeDir()
+		*configPath = filepath.Join(homeDir, ".config", "fazt", "config.json")
+	}
+	configDir := filepath.Dir(*configPath)
+
+	// Call command function
+	output, err := statusCommand(*configPath, configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(output)
 }
 
 // handleSetAuthToken handles the set-auth-token subcommand
@@ -848,21 +1182,8 @@ func handleStartCommand() {
 	// Initialize auth handlers with session store and rate limiter
 	handlers.InitAuth(sessionStore, rateLimiter)
 
-	// Display auth status with warnings
-	if cfg.Auth.Enabled {
-		fmt.Printf("  Authentication: ✓ Enabled (user: %s)\n", cfg.Auth.Username)
-	} else {
-		fmt.Println("  Authentication: ✗ Disabled")
-		if cfg.IsProduction() {
-			fmt.Println()
-			fmt.Println("  ⚠️  WARNING: Running in PRODUCTION without authentication!")
-			fmt.Println("  ⚠️  Your dashboard is publicly accessible.")
-			fmt.Println()
-			fmt.Println("  To enable authentication, run:")
-			fmt.Printf("    cc-server set-credentials --username admin --password secret123\n")
-			fmt.Println()
-		}
-	}
+	// Display auth status (v0.4.0: auth always required)
+	fmt.Printf("  Authentication: ✓ Enabled (user: %s)\n", cfg.Auth.Username)
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println()
 
