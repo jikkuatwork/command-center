@@ -58,19 +58,65 @@ func main() {
 		return
 	}
 
-	// Handle subcommands
+	// Handle top-level subcommands
 	switch command {
+	case "server":
+		handleServerCommand(os.Args[2:])
+	case "client":
+		handleClientCommand(os.Args[2:])
+	default:
+		fmt.Printf("Unknown command: %s\n\n", command)
+		printUsage()
+		os.Exit(1)
+	}
+}
+
+// handleServerCommand handles server-related subcommands
+func handleServerCommand(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Error: server command requires a subcommand")
+		printServerHelp()
+		os.Exit(1)
+	}
+
+	subcommand := args[0]
+
+	switch subcommand {
 	case "set-credentials":
 		handleSetCredentials()
-	case "deploy":
-		handleDeployCommand()
 	case "start":
 		handleStartCommand()
 	case "stop":
 		handleStopCommand()
+	case "--help", "-h", "help":
+		printServerHelp()
 	default:
-		fmt.Printf("Unknown command: %s\n\n", command)
-		printUsage()
+		fmt.Printf("Unknown server command: %s\n\n", subcommand)
+		printServerHelp()
+		os.Exit(1)
+	}
+}
+
+// handleClientCommand handles client-related subcommands
+func handleClientCommand(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Error: client command requires a subcommand")
+		printClientHelp()
+		os.Exit(1)
+	}
+
+	subcommand := args[0]
+
+	switch subcommand {
+	case "set-auth-token":
+		handleSetAuthToken()
+	case "deploy":
+		handleDeployCommand()
+	case "--help", "-h", "help":
+		printClientHelp()
+	default:
+		fmt.Printf("Unknown client command: %s\n\n", subcommand)
+		printClientHelp()
 		os.Exit(1)
 	}
 }
@@ -435,7 +481,7 @@ func handleSetCredentials() {
 		flags.PrintDefaults()
 	}
 
-	if err := flags.Parse(os.Args[2:]); err != nil {
+	if err := flags.Parse(os.Args[3:]); err != nil {
 		os.Exit(1)
 	}
 
@@ -493,7 +539,71 @@ func handleSetCredentials() {
 	fmt.Println()
 }
 
-// handleDeployCommand handles the deploy subcommand
+// handleSetAuthToken handles the set-auth-token subcommand
+func handleSetAuthToken() {
+	flags := flag.NewFlagSet("set-auth-token", flag.ExitOnError)
+	token := flags.String("token", "", "Authentication token (required)")
+
+	flags.Usage = func() {
+		fmt.Println("Usage: cc-server set-auth-token --token <TOKEN>")
+		fmt.Println()
+		fmt.Println("Sets the authentication token for site deployments.")
+		fmt.Println("Generate a token in the web interface at /hosting,")
+		fmt.Println("then configure it with this command.")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  cc-server set-auth-token --token abc123def456789")
+		fmt.Println()
+		flags.PrintDefaults()
+	}
+
+	if err := flags.Parse(os.Args[3:]); err != nil {
+		os.Exit(1)
+	}
+
+	if *token == "" {
+		fmt.Println("Error: --token is required")
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	// Load or create config
+	flagsConfig := config.ParseFlags()
+	configPath := config.ExpandPath(flagsConfig.ConfigPath)
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("Config file not found, creating new config at %s\n", configPath)
+			cfg = config.CreateDefaultConfig()
+		} else {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+	}
+
+	// Validate token format (basic validation)
+	if len(*token) < 10 {
+		fmt.Println("Warning: Token seems too short (minimum 10 characters recommended)")
+	}
+
+	// Set token in config (simplified - no name needed)
+	cfg.SetAPIKey(*token, "deployment-token")
+
+	// Save config
+	if err := config.SaveToFile(cfg, configPath); err != nil {
+		log.Fatalf("Failed to save config: %v", err)
+	}
+
+	// Success message
+	fmt.Println()
+	fmt.Println("✓ Authentication token configured successfully!")
+	fmt.Println()
+	fmt.Printf("Token:  %s...%s (truncated)\n", (*token)[:4], (*token)[len(*token)-4:])
+	fmt.Println("Config: ~/.config/cc/config.json")
+	fmt.Println()
+	fmt.Println("You can now deploy sites:")
+	fmt.Println("  cc-server deploy --path . --domain my-site")
+	fmt.Println()
+}
 func handleDeployCommand() {
 	flags := flag.NewFlagSet("deploy", flag.ExitOnError)
 	path := flags.String("path", "", "Directory to deploy (required)")
@@ -513,7 +623,7 @@ func handleDeployCommand() {
 		fmt.Println("  cc-server deploy --domain my-site --path .")
 	}
 
-	if err := flags.Parse(os.Args[2:]); err != nil {
+	if err := flags.Parse(os.Args[3:]); err != nil {
 		os.Exit(1)
 	}
 
@@ -657,21 +767,31 @@ func handleStartCommand() {
 	port := flags.String("port", "", "Server port (overrides config)")
 	db := flags.String("db", "", "Database file path (overrides config)")
 	configFile := flags.String("config", "", "Config file path")
+	domain := flags.String("domain", "", "Server domain (overrides config)")
 
 	flags.Usage = func() {
-		fmt.Println("Usage: cc-server start [options]")
+		fmt.Println("Usage: cc-server server start [options]")
 		fmt.Println()
 		fmt.Println("Starts the Command Center server.")
+		fmt.Println()
+		fmt.Println("Domain Configuration:")
+		fmt.Println("  Default: https://fazt.sh (for project use)")
+		fmt.Println("  Override: --domain yourdomain.com")
+		fmt.Println("  Environment: FAZT_DOMAIN environment variable")
 		fmt.Println()
 		flags.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  cc-server start")
-		fmt.Println("  cc-server start --port 8080")
-		fmt.Println("  cc-server start --config /path/to/config.json")
+		fmt.Println("  cc-server server start")
+		fmt.Println("  cc-server server start --port 8080")
+		fmt.Println("  cc-server server start --domain mysite.com")
+		fmt.Println("  cc-server server start --config /path/to/config.json")
+		fmt.Println()
+		fmt.Println("Environment Variables:")
+		fmt.Println("  FAZT_DOMAIN=fazt.sh cc-server server start")
 	}
 
-	if err := flags.Parse(os.Args[2:]); err != nil {
+	if err := flags.Parse(os.Args[3:]); err != nil {
 		os.Exit(1)
 	}
 
@@ -691,11 +811,15 @@ func handleStartCommand() {
 	if *configFile != "" {
 		cliFlags.ConfigPath = *configFile
 	}
-
 	// Load configuration
 	cfg, err := config.Load(cliFlags)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Apply domain override if provided (highest priority)
+	if *domain != "" {
+		cfg.Server.Domain = *domain
 	}
 
 	// Ensure secure file permissions
@@ -901,7 +1025,7 @@ func handleStopCommand() {
 		fmt.Println("Looks for a PID file in ~/.config/cc/ to gracefully shutdown the server.")
 	}
 
-	if err := flags.Parse(os.Args[2:]); err != nil {
+	if err := flags.Parse(os.Args[3:]); err != nil {
 		os.Exit(1)
 	}
 
@@ -964,29 +1088,73 @@ func printUsage() {
 	fmt.Println("USAGE:")
 	fmt.Println("  cc-server <command> [options]")
 	fmt.Println()
-	fmt.Println("COMMANDS:")
-	fmt.Println("  set-credentials  Set up authentication credentials")
-	fmt.Println("  deploy           Deploy a directory to a site")
-	fmt.Println("  start            Start the Command Center server")
-	fmt.Println("  stop             Stop a running Command Center server")
+	fmt.Println("MAIN COMMANDS:")
+	fmt.Println("  server           Server management commands")
+	fmt.Println("  client           Client/deployment commands")
 	fmt.Println("  --help, -h       Show this help")
 	fmt.Println("  --version        Show version and exit")
 	fmt.Println()
-	fmt.Println("EXAMPLES:")
-	fmt.Println("  # Set up authentication")
-	fmt.Println("  cc-server set-credentials --username admin --password secret123")
-	fmt.Println()
-	fmt.Println("  # Start the server")
-	fmt.Println("  cc-server start")
-	fmt.Println()
-	fmt.Println("  # Deploy a site")
-	fmt.Println("  cc-server deploy ./my-site --domain my-app")
-	fmt.Println()
-	fmt.Println("  # Deploy to remote server")
-	fmt.Println("  cc-server deploy ./build --domain app --server https://cc.example.com")
-	fmt.Println()
-	fmt.Println("  # Stop the server")
-	fmt.Println("  cc-server stop")
+	fmt.Println("For detailed help:")
+	fmt.Println("  cc-server server --help     # Server commands")
+	fmt.Println("  cc-server client --help     # Client commands")
 	fmt.Println()
 	fmt.Println("For more information, visit: https://github.com/jikku/command-center")
+}
+
+// printServerHelp displays server-specific help
+func printServerHelp() {
+	fmt.Println("Command Center v0.3.0 - Server Commands")
+	fmt.Println()
+	fmt.Println("USAGE:")
+	fmt.Println("  cc-server server <command> [options]")
+	fmt.Println()
+	fmt.Println("SERVER COMMANDS:")
+	fmt.Println("  set-credentials  Set up authentication credentials")
+	fmt.Println("  start            Start the Command Center server")
+	fmt.Println("  stop             Stop a running Command Center server")
+	fmt.Println("  --help, -h       Show this help")
+	fmt.Println()
+	fmt.Println("EXAMPLES:")
+	fmt.Println("  # Set up authentication")
+	fmt.Println("  cc-server server set-credentials --username admin --password secret123")
+	fmt.Println()
+	fmt.Println("  # Start the server")
+	fmt.Println("  cc-server server start")
+	fmt.Println()
+	fmt.Println("  # Start on custom port")
+	fmt.Println("  cc-server server start --port 8080")
+	fmt.Println()
+	fmt.Println("  # Stop the server")
+	fmt.Println("  cc-server server stop")
+	fmt.Println()
+}
+
+// printClientHelp displays client-specific help
+func printClientHelp() {
+	fmt.Println("Command Center v0.3.0 - Client Commands")
+	fmt.Println()
+	fmt.Println("USAGE:")
+	fmt.Println("  cc-server client <command> [options]")
+	fmt.Println()
+	fmt.Println("CLIENT COMMANDS:")
+	fmt.Println("  set-auth-token   Set authentication token for deployments")
+	fmt.Println("  deploy           Deploy a directory to a site")
+	fmt.Println("  --help, -h       Show this help")
+	fmt.Println()
+	fmt.Println("EXAMPLES:")
+	fmt.Println("  # Set authentication token")
+	fmt.Println("  cc-server client set-auth-token --token abc123def456")
+	fmt.Println()
+	fmt.Println("  # Deploy current directory")
+	fmt.Println("  cc-server client deploy --path . --domain my-site")
+	fmt.Println()
+	fmt.Println("  # Deploy to remote server")
+	fmt.Println("  cc-server client deploy --path ./build --domain app --server https://cc.example.com")
+	fmt.Println()
+	fmt.Println("WORKFLOW:")
+	fmt.Println("  1. Start server: cc-server server start")
+	fmt.Println("  2. Visit /hosting in your browser to generate token")
+	fmt.Println("  3. Set token: cc-server client set-auth-token --token <TOKEN>")
+	fmt.Println("  4. Deploy sites: cc-server client deploy --path . --domain my-site")
+	fmt.Println()
 }

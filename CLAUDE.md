@@ -33,18 +33,21 @@ examples/                # Sample apps
 go build -o cc-server ./cmd/server/
 go test ./... -v
 
-# CLI Commands (subcommand-based interface)
-./cc-server set-credentials --username admin --password secret123  # Set up auth
-./cc-server start [--port 8080] [--config path]                     # Start server
-./cc-server deploy --path <PATH> --domain <SUBDOMAIN>               # Deploy site
-./cc-server stop                                                     # Stop server
-./cc-server --version                                                # Show version
-./cc-server --help                                                   # Show help
+# CLI Commands (server/client structure)
+./cc-server server set-credentials --username admin --password secret123  # Server auth
+./cc-server server start [--port 8080] [--config path]                 # Start server
+./cc-server server stop                                               # Stop server
+./cc-server client set-auth-token --token <TOKEN>                       # Set auth token
+./cc-server client deploy --path <PATH> --domain <SUBDOMAIN>           # Deploy site
+./cc-server --version                                                  # Show version
+./cc-server --help                                                     # Show help
 
 # Common workflows
-./cc-server set-credentials --username admin --password secret123 && ./cc-server start
-./cc-server deploy --path . --domain my-app                         # Deploy current dir
-./cc-server deploy --path ~/project/build --domain app --server https://cc.example.com
+./cc-server server set-credentials --username admin --password secret123
+./cc-server server start
+./cc-server client set-auth-token --token abc123def456
+./cc-server client deploy --path . --domain my-app
+./cc-server client deploy --path ~/project/build --domain app --server https://cc.example.com
 ```
 
 ## Database Schema
@@ -118,8 +121,10 @@ console.log(...)
 **Security**: Validate inputs, use parameterized queries, apply rate limiting
 
 ## CLI Interface Design
-The CLI uses a clear subcommand structure rather than flag-based modes:
-- **Subcommands**: `set-credentials`, `deploy`, `start`, `stop`
+The CLI uses a clear server/client structure:
+- **Server commands**: `server set-credentials`, `server start`, `server stop`
+- **Client commands**: `client set-auth-token`, `client deploy`
+- **Hierarchical help**: Main help → server/client help → command help
 - **Flag ordering**: Flags must come before positional arguments (Go flag package standard)
 - **Error handling**: Clear error messages and usage guidance
 - **Auto-creation**: Config directories created automatically with secure permissions

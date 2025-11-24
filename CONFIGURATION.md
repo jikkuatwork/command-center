@@ -97,34 +97,52 @@ cc-server <command> [flags] [arguments]
 
 | Command | Description |
 |---------|-------------|
-| `set-credentials` | Set up authentication credentials |
-| `start` | Start the Command Center server |
-| `stop` | Stop a running Command Center server |
-| `deploy` | Deploy a directory to a site |
+| `server` | Server management commands |
+| `client` | Client/deployment commands |
 | `--help, -h` | Show help |
 | `--version` | Show version and exit |
 
+### Server Commands
+
+| Command | Description |
+|---------|-------------|
+| `set-credentials` | Set up authentication credentials |
+| `start` | Start the Command Center server |
+| `stop` | Stop a running Command Center server |
+
+### Client Commands
+
+| Command | Description |
+|---------|-------------|
+| `set-auth-token` | Set authentication token for deployments |
+| `deploy` | Deploy a directory to a site |
+
 ### Command-Specific Flags
 
-#### start command
+#### server start command
 | Flag | Type | Description |
 |------|------|-------------|
 | `--config <path>` | string | Path to config file |
 | `--db <path>` | string | Database file path (overrides config) |
 | `--port <port>` | string | Server port (overrides config) |
 
-#### deploy command
+#### client deploy command
 | Flag | Type | Description |
 |------|------|-------------|
 | `--path <directory>` | string | Directory to deploy (required) |
 | `--domain <subdomain>` | string | Domain/subdomain for the site (required) |
 | `--server <url>` | string | Command Center server URL |
 
-#### set-credentials command
+#### server set-credentials command
 | Flag | Type | Description |
 |------|------|-------------|
 | `--username <user>` | string | Username for authentication |
 | `--password <pass>` | string | Password for authentication |
+
+#### client set-auth-token command
+| Flag | Type | Description |
+|------|------|-------------|
+| `--token <TOKEN>` | string | Authentication token (required) |
 
 ### Examples
 
@@ -132,28 +150,31 @@ cc-server <command> [flags] [arguments]
 
 ```bash
 # Set up authentication (recommended first step)
-./cc-server set-credentials --username admin --password secret123
+./cc-server server set-credentials --username admin --password secret123
+
+# Set authentication token (after generating in web interface)
+./cc-server client set-auth-token --token <YOUR_TOKEN>
 
 # Start the server
-./cc-server start
+./cc-server server start
 
 # Start with custom config file
-./cc-server start --config /path/to/config.json
+./cc-server server start --config /path/to/config.json
 
 # Start on custom port
-./cc-server start --port 8080
+./cc-server server start --port 8080
 
 # Start with custom database
-./cc-server start --db /path/to/data.db
+./cc-server server start --db /path/to/data.db
 
 # Stop the server
-./cc-server stop
+./cc-server server stop
 
 # Deploy a site
-./cc-server deploy --path ./my-site --domain my-app
+./cc-server client deploy --path ./my-site --domain my-app
 
 # Deploy to remote server
-./cc-server deploy --path ./build --domain app --server https://cc.example.com
+./cc-server client deploy --path ./build --domain app --server https://cc.example.com
 ```
 
 #### Getting Help
@@ -162,10 +183,14 @@ cc-server <command> [flags] [arguments]
 # General help
 ./cc-server --help
 
+# Category-specific help
+./cc-server server --help
+./cc-server client --help
+
 # Command-specific help
-./cc-server start --help
-./cc-server deploy --help
-./cc-server set-credentials --help
+./cc-server server start --help
+./cc-server client deploy --help
+./cc-server server set-credentials --help
 ```
 
 ## Environment Variables
@@ -373,24 +398,26 @@ The CLI interface has changed from flag-based to subcommand-based:
 ### New CLI (v0.3.0)
 ```bash
 # Set credentials
-./cc-server set-credentials --username admin --password secret123
+./cc-server server set-credentials --username admin --password secret123
 
 # Start server
-./cc-server start
+./cc-server server start
 
-# Deploy (explicit flags)
-./cc-server deploy --path . --domain my-site
+# Deploy (server/client structure)
+./cc-server client deploy --path . --domain my-site
 ```
 
 ### Key Changes
-1. **Subcommand structure** - Clear separation of concerns
-2. **Flag-based arguments** - All parameters use explicit flags (no positional arguments)
-3. **Removed `--env` flag** - Environment configs not supported
-4. **Consolidated config** - All settings in `~/.config/cc/config.json`
-5. **Better error handling** - Clear help and error messages
+1. **Server/Client structure** - Clear separation between server management and client operations
+2. **Hierarchical commands** - Organized by functional area (server vs client)
+3. **Flag-based arguments** - All parameters use explicit flags (no positional arguments)
+4. **Removed `--env` flag** - Environment configs not supported
+5. **Consolidated config** - All settings in `~/.config/cc/config.json`
+6. **Better error handling** - Clear help and error messages
+7. **Improved discoverability** - Help is categorized and context-aware
 
 ### Migration Steps
 1. Continue using existing config files (compatible)
-2. Update deployment scripts to use new `deploy` command
-3. Update service files to use `start` command
+2. Update deployment scripts to use `client deploy` command
+3. Update service files to use `server start` command
 4. Update documentation with new CLI examples

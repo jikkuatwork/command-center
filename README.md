@@ -37,47 +37,48 @@ cd command-center
 go build -o cc-server ./cmd/server
 
 # Set up authentication (recommended)
-./cc-server set-credentials --username admin --password secret123
+./cc-server server set-credentials --username admin --password secret123
 
 # Start the server
-./cc-server start
+./cc-server server start
 ```
 
 The server starts on **port 4698**. Access the dashboard at `http://localhost:4698`
 
 ### CLI Commands
 
-Command Center uses a subcommand-based interface:
+Command Center uses a server/client structure:
 
 ```bash
-# Set up authentication
-./cc-server set-credentials --username admin --password secret123
+# Server Management
+./cc-server server set-credentials --username admin --password secret123
+./cc-server server start [--port 8080] [--config /path/to/config.json)]
+./cc-server server stop
 
-# Start the server
-./cc-server start [--port 8080] [--config /path/to/config.json]
+# Client/Deployment
+./cc-server client set-auth-token --token <TOKEN>
+./cc-server client deploy --path ./my-site --domain my-app
+./cc-server client deploy --path ./build --domain app --server https://cc.example.com
 
-# Stop the server
-./cc-server stop
-
-# Deploy a site
-./cc-server deploy --path ./my-site --domain my-app
-
-# Deploy to remote server
-./cc-server deploy --path ./build --domain app --server https://cc.example.com
-
-# Get help
-./cc-server --help
-./cc-server deploy --help
-./cc-server start --help
+# Help
+./cc-server --help              # Main help
+./cc-server server --help       # Server commands
+./cc-server client --help       # Client commands
 ```
 
 **Note**: Flags must come before positional arguments. The `~/.config/cc/` directory is created automatically with secure permissions.
 
 ## Personal Cloud Usage
 
-### 1. Create an API Key
+### 1. Create an Authentication Token
 
-Visit `http://localhost:4698/hosting` and create a new deploy key. The API key is automatically saved to `~/.config/cc/config.json`.
+Visit `http://localhost:4698/hosting` (now available in the sidebar) and create a new authentication token. Then configure it via CLI:
+
+```bash
+./cc-server client set-auth-token --token <YOUR_TOKEN>
+```
+
+The authentication token will be saved to `~/.config/cc/config.json` and used automatically for deployments.
 
 ### 2. Deploy a Static Site
 
@@ -96,7 +97,7 @@ Your site is now live at `http://my-site.localhost:4698`
 
 ```bash
 # Deploy to a remote Command Center instance
-cc-server deploy --path ./build --domain my-app --server https://cc.example.com
+cc-server client deploy --path ./build --domain my-app --server https://cc.example.com
 ```
 
 ### 4. Create a Serverless App
@@ -111,7 +112,7 @@ res.json({ message: `Hello, ${name}!` });
 
 Deploy and access:
 ```bash
-cc-server deploy --path . --domain my-app
+cc-server client deploy --path . --domain my-app
 curl http://my-app.localhost:4698/?name=Claude
 # {"message":"Hello, Claude!"}
 ```
@@ -298,7 +299,7 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/command-center
-ExecStart=/opt/command-center/cc-server start
+ExecStart=/opt/command-center/cc-server server start
 Restart=always
 PIDFile=/opt/command-center/cc-server.pid
 

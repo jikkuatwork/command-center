@@ -180,7 +180,7 @@ func CreateDefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
 			Port:   "4698",
-			Domain: "https://cc.toolbomber.com",
+			Domain: "https://fazt.sh",
 			Env:    "development",
 		},
 		Database: DatabaseConfig{
@@ -208,6 +208,9 @@ func applyEnvVars(cfg *Config) {
 	}
 	if env := os.Getenv("ENV"); env != "" {
 		cfg.Server.Env = env
+	}
+	if domain := os.Getenv("FAZT_DOMAIN"); domain != "" {
+		cfg.Server.Domain = domain
 	}
 	if ntfyTopic := os.Getenv("NTFY_TOPIC"); ntfyTopic != "" {
 		cfg.Ntfy.Topic = ntfyTopic
