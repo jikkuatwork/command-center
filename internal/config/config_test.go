@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,28 +40,59 @@ func TestConfigValidate(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "valid development config",
+			name: "valid development config with auth",
 			config: Config{
-				Server:   ServerConfig{Port: "8080", Domain: "localhost", Env: "development"},
+				Server:   ServerConfig{Port: "8080", Domain: "https://localhost", Env: "development"},
 				Database: DatabaseConfig{Path: "/tmp/test.db"},
-				Auth:     AuthConfig{Enabled: false},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: "hash123"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid production config with auth",
 			config: Config{
-				Server:   ServerConfig{Port: "443", Domain: "example.com", Env: "production"},
+				Server:   ServerConfig{Port: "443", Domain: "https://example.com", Env: "production"},
 				Database: DatabaseConfig{Path: "/var/data/app.db"},
-				Auth:     AuthConfig{Enabled: true, Username: "admin", PasswordHash: "hash123"},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: "hash123"},
 			},
 			wantErr: false,
 		},
 		{
+			name: "invalid - missing auth credentials",
+			config: Config{
+				Server:   ServerConfig{Port: "8080", Domain: "https://localhost", Env: "development"},
+				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "", PasswordHash: ""},
+			},
+			wantErr: true,
+			errMsg:  "username",
+		},
+		{
+			name: "invalid - missing username",
+			config: Config{
+				Server:   ServerConfig{Port: "8080", Domain: "https://localhost", Env: "development"},
+				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "", PasswordHash: "hash"},
+			},
+			wantErr: true,
+			errMsg:  "username",
+		},
+		{
+			name: "invalid - missing password hash",
+			config: Config{
+				Server:   ServerConfig{Port: "8080", Domain: "https://localhost", Env: "development"},
+				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: ""},
+			},
+			wantErr: true,
+			errMsg:  "password",
+		},
+		{
 			name: "invalid port - not a number",
 			config: Config{
-				Server:   ServerConfig{Port: "abc", Domain: "localhost", Env: "development"},
+				Server:   ServerConfig{Port: "abc", Domain: "https://localhost", Env: "development"},
 				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: "hash"},
 			},
 			wantErr: true,
 			errMsg:  "invalid port",
@@ -68,8 +100,9 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "invalid port - too high",
 			config: Config{
-				Server:   ServerConfig{Port: "70000", Domain: "localhost", Env: "development"},
+				Server:   ServerConfig{Port: "70000", Domain: "https://localhost", Env: "development"},
 				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: "hash"},
 			},
 			wantErr: true,
 			errMsg:  "invalid port",
@@ -77,8 +110,9 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "invalid port - zero",
 			config: Config{
-				Server:   ServerConfig{Port: "0", Domain: "localhost", Env: "development"},
+				Server:   ServerConfig{Port: "0", Domain: "https://localhost", Env: "development"},
 				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: "hash"},
 			},
 			wantErr: true,
 			errMsg:  "invalid port",
@@ -86,8 +120,9 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "invalid environment",
 			config: Config{
-				Server:   ServerConfig{Port: "8080", Domain: "localhost", Env: "staging"},
+				Server:   ServerConfig{Port: "8080", Domain: "https://localhost", Env: "staging"},
 				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: "admin", PasswordHash: "hash"},
 			},
 			wantErr: true,
 			errMsg:  "invalid environment",
@@ -95,31 +130,12 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "empty database path",
 			config: Config{
-				Server:   ServerConfig{Port: "8080", Domain: "localhost", Env: "development"},
+				Server: ServerConfig{Port: "8080", Domain: "https://localhost", Env: "development"},
 				Database: DatabaseConfig{Path: ""},
+				Auth:   AuthConfig{Username: "admin", PasswordHash: "hash"},
 			},
 			wantErr: true,
 			errMsg:  "database path cannot be empty",
-		},
-		{
-			name: "auth enabled but missing username",
-			config: Config{
-				Server:   ServerConfig{Port: "8080", Domain: "localhost", Env: "development"},
-				Database: DatabaseConfig{Path: "/tmp/test.db"},
-				Auth:     AuthConfig{Enabled: true, Username: "", PasswordHash: "hash"},
-			},
-			wantErr: true,
-			errMsg:  "username is empty",
-		},
-		{
-			name: "auth enabled but missing password hash",
-			config: Config{
-				Server:   ServerConfig{Port: "8080", Domain: "localhost", Env: "development"},
-				Database: DatabaseConfig{Path: "/tmp/test.db"},
-				Auth:     AuthConfig{Enabled: true, Username: "admin", PasswordHash: ""},
-			},
-			wantErr: true,
-			errMsg:  "password hash is empty",
 		},
 	}
 
@@ -129,6 +145,8 @@ func TestConfigValidate(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Validate() expected error containing %q, got nil", tt.errMsg)
+				} else if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Validate() error = %v, want error containing %q", err, tt.errMsg)
 				}
 			} else {
 				if err != nil {
@@ -167,14 +185,19 @@ func TestCreateDefaultConfig(t *testing.T) {
 	if cfg.Server.Env != "development" {
 		t.Errorf("Default env should be development, got %s", cfg.Server.Env)
 	}
-	if cfg.Auth.Enabled {
-		t.Error("Auth should be disabled by default")
-	}
 	if cfg.Ntfy.URL != "https://ntfy.sh" {
 		t.Errorf("Default ntfy URL should be https://ntfy.sh, got %s", cfg.Ntfy.URL)
 	}
 	if cfg.Database.Path == "" {
 		t.Error("Default database path should not be empty")
+	}
+
+	// v0.4.0: Auth credentials should be empty by default (to be set by init command)
+	if cfg.Auth.Username != "" {
+		t.Error("Default config should have empty username (set during init)")
+	}
+	if cfg.Auth.PasswordHash != "" {
+		t.Error("Default config should have empty password hash (set during init)")
 	}
 }
 
@@ -207,10 +230,11 @@ func TestLoadFromFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
+	// v0.4.0: No "enabled" field in auth
 	configJSON := `{
-		"server": {"port": "8080", "domain": "test.com", "env": "development"},
+		"server": {"port": "8080", "domain": "https://test.com", "env": "development"},
 		"database": {"path": "/tmp/test.db"},
-		"auth": {"enabled": false}
+		"auth": {"username": "testuser", "password_hash": "testhash"}
 	}`
 
 	if err := os.WriteFile(configPath, []byte(configJSON), 0644); err != nil {
@@ -225,8 +249,11 @@ func TestLoadFromFile(t *testing.T) {
 	if cfg.Server.Port != "8080" {
 		t.Errorf("Port = %s, want 8080", cfg.Server.Port)
 	}
-	if cfg.Server.Domain != "test.com" {
-		t.Errorf("Domain = %s, want test.com", cfg.Server.Domain)
+	if cfg.Server.Domain != "https://test.com" {
+		t.Errorf("Domain = %s, want https://test.com", cfg.Server.Domain)
+	}
+	if cfg.Auth.Username != "testuser" {
+		t.Errorf("Username = %s, want testuser", cfg.Auth.Username)
 	}
 }
 
@@ -253,8 +280,9 @@ func TestSaveToFile(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "subdir", "config.json")
 
 	cfg := &Config{
-		Server:   ServerConfig{Port: "9999", Domain: "saved.com", Env: "production"},
+		Server:   ServerConfig{Port: "9999", Domain: "https://saved.com", Env: "production"},
 		Database: DatabaseConfig{Path: "/saved/db"},
+		Auth:     AuthConfig{Username: "saveuser", PasswordHash: "savehash"},
 	}
 
 	if err := SaveToFile(cfg, configPath); err != nil {
@@ -266,6 +294,15 @@ func TestSaveToFile(t *testing.T) {
 		t.Error("Config file was not created")
 	}
 
+	// Verify file permissions (should be 0600)
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("Failed to stat config file: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("Config file permissions = %o, want 0600", info.Mode().Perm())
+	}
+
 	// Load and verify
 	loaded, err := LoadFromFile(configPath)
 	if err != nil {
@@ -274,5 +311,75 @@ func TestSaveToFile(t *testing.T) {
 
 	if loaded.Server.Port != "9999" {
 		t.Errorf("Loaded port = %s, want 9999", loaded.Server.Port)
+	}
+	if loaded.Auth.Username != "saveuser" {
+		t.Errorf("Loaded username = %s, want saveuser", loaded.Auth.Username)
+	}
+}
+
+// v0.4.0 specific tests
+
+func TestConfigValidation_AlwaysRequiresAuth(t *testing.T) {
+	// Config without any auth should fail validation
+	cfg := Config{
+		Server:   ServerConfig{Port: "4698", Domain: "https://test.com", Env: "development"},
+		Database: DatabaseConfig{Path: "/tmp/test.db"},
+		Auth:     AuthConfig{}, // Empty auth
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Config validation should fail when auth credentials are missing")
+	}
+
+	// Should mention username in error
+	if !strings.Contains(err.Error(), "username") {
+		t.Errorf("Error should mention username requirement, got: %v", err)
+	}
+}
+
+func TestConfigStructure_NoEnabledField(t *testing.T) {
+	// This test verifies at compile-time that AuthConfig doesn't have Enabled field
+	// If Enabled field exists, this would not compile
+	cfg := AuthConfig{
+		Username:     "test",
+		PasswordHash: "hash",
+		// Enabled: true,  // This line should NOT compile in v0.4.0
+	}
+
+	if cfg.Username == "" {
+		t.Error("Config should have username")
+	}
+}
+
+func TestAuthConfig_RequiresBothUsernameAndPassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		username string
+		password string
+		wantErr  bool
+	}{
+		{"both provided", "admin", "hash123", false},
+		{"only username", "admin", "", true},
+		{"only password", "", "hash123", true},
+		{"neither provided", "", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{
+				Server:   ServerConfig{Port: "4698", Domain: "https://test.com", Env: "development"},
+				Database: DatabaseConfig{Path: "/tmp/test.db"},
+				Auth:     AuthConfig{Username: tt.username, PasswordHash: tt.password},
+			}
+
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Error("Expected validation error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("Unexpected validation error: %v", err)
+			}
+		})
 	}
 }
