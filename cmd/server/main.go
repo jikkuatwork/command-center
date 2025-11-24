@@ -188,7 +188,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // printVersion displays version information
 func printVersion() {
-	fmt.Printf("Command Center %s\n", Version)
+	fmt.Printf("fazt.sh %s\n", Version)
 	fmt.Printf("Go version: %s\n", runtime.Version())
 	fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }
@@ -291,7 +291,7 @@ func extractSubdomain(host, mainDomain string) string {
 }
 
 // siteHandler handles requests for hosted sites
-// Serves static files from ~/.config/cc/sites/{subdomain}/
+// Serves static files from ~/.config/fazt/sites/{subdomain}/
 // If main.js exists, executes serverless JavaScript instead
 // WebSocket connections at /ws are handled by the WebSocket hub
 func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
@@ -473,10 +473,10 @@ func handleSetCredentials() {
 	password := flags.String("password", "", "Password for authentication")
 
 	flags.Usage = func() {
-		fmt.Println("Usage: cc-server set-credentials --username <user> --password <pass>")
+		fmt.Println("Usage: fazt server set-credentials --username <user> --password <pass>")
 		fmt.Println()
-		fmt.Println("Sets up authentication for the Command Center dashboard.")
-		fmt.Println("Credentials are stored securely in ~/.config/cc/config.json")
+		fmt.Println("Sets up authentication for the fazt.sh dashboard.")
+		fmt.Println("Credentials are stored securely in ~/.config/fazt/config.json")
 		fmt.Println()
 		flags.PrintDefaults()
 	}
@@ -545,7 +545,7 @@ func handleSetAuthToken() {
 	token := flags.String("token", "", "Authentication token (required)")
 
 	flags.Usage = func() {
-		fmt.Println("Usage: cc-server set-auth-token --token <TOKEN>")
+		fmt.Println("Usage: fazt client set-auth-token --token <TOKEN>")
 		fmt.Println()
 		fmt.Println("Sets the authentication token for site deployments.")
 		fmt.Println("Generate a token in the web interface at /hosting,")
@@ -598,22 +598,22 @@ func handleSetAuthToken() {
 	fmt.Println("✓ Authentication token configured successfully!")
 	fmt.Println()
 	fmt.Printf("Token:  %s...%s (truncated)\n", (*token)[:4], (*token)[len(*token)-4:])
-	fmt.Println("Config: ~/.config/cc/config.json")
+	fmt.Println("Config: ~/.config/fazt/config.json")
 	fmt.Println()
 	fmt.Println("You can now deploy sites:")
-	fmt.Println("  cc-server deploy --path . --domain my-site")
+	fmt.Println("  fazt client deploy --path . --domain my-site")
 	fmt.Println()
 }
 func handleDeployCommand() {
 	flags := flag.NewFlagSet("deploy", flag.ExitOnError)
 	path := flags.String("path", "", "Directory to deploy (required)")
 	domain := flags.String("domain", "", "Domain/subdomain for the site (required)")
-	server := flags.String("server", "http://localhost:4698", "Command Center server URL")
+	server := flags.String("server", "http://localhost:4698", "fazt.sh server URL")
 
 	flags.Usage = func() {
-		fmt.Println("Usage: cc-server deploy --path <PATH> --domain <SUBDOMAIN>")
+		fmt.Println("Usage: fazt client deploy --path <PATH> --domain <SUBDOMAIN>")
 		fmt.Println()
-		fmt.Println("Deploys a directory to a Command Center server.")
+		fmt.Println("Deploys a directory to a fazt.sh server.")
 		fmt.Println()
 		flags.PrintDefaults()
 		fmt.Println()
@@ -658,7 +658,7 @@ func handleDeployCommand() {
 	token := cfg.GetAPIKey()
 	if token == "" {
 		fmt.Println("Error: No API key found in config")
-		fmt.Println("Please ensure you have an API key configured in ~/.config/cc/config.json")
+		fmt.Println("Please ensure you have an API key configured in ~/.config/fazt/config.json")
 		os.Exit(1)
 	}
 
@@ -770,9 +770,9 @@ func handleStartCommand() {
 	domain := flags.String("domain", "", "Server domain (overrides config)")
 
 	flags.Usage = func() {
-		fmt.Println("Usage: cc-server server start [options]")
+		fmt.Println("Usage: fazt server start [options]")
 		fmt.Println()
-		fmt.Println("Starts the Command Center server.")
+		fmt.Println("Starts the fazt.sh server.")
 		fmt.Println()
 		fmt.Println("Domain Configuration:")
 		fmt.Println("  Default: https://fazt.sh (for project use)")
@@ -797,7 +797,7 @@ func handleStartCommand() {
 
 	// Set up configuration
 	if !*quiet {
-		log.Println("Starting Command Center...")
+		log.Println("Starting fazt.sh...")
 	}
 
 	// Use default flags structure but override with our specific flags
@@ -828,7 +828,7 @@ func handleStartCommand() {
 	// Display startup information
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════")
-	fmt.Println("           Command Center v0.3.0 - Starting Up")
+	fmt.Println("             fazt.sh v0.3.0 - Starting Up")
 	fmt.Println("═══════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  Environment:  %s\n", cfg.Server.Env)
@@ -1018,11 +1018,11 @@ func handleStopCommand() {
 	flags := flag.NewFlagSet("stop", flag.ExitOnError)
 
 	flags.Usage = func() {
-		fmt.Println("Usage: cc-server stop")
+		fmt.Println("Usage: fazt server stop")
 		fmt.Println()
-		fmt.Println("Stops a running Command Center server.")
+		fmt.Println("Stops a running fazt.sh server.")
 		fmt.Println()
-		fmt.Println("Looks for a PID file in ~/.config/cc/ to gracefully shutdown the server.")
+		fmt.Println("Looks for a PID file in ~/.config/fazt/ to gracefully shutdown the server.")
 	}
 
 	if err := flags.Parse(os.Args[3:]); err != nil {
@@ -1083,10 +1083,10 @@ func handleStopCommand() {
 
 // printUsage displays the usage information
 func printUsage() {
-	fmt.Println("Command Center v0.3.0 - Analytics & Personal Cloud Platform")
+	fmt.Println("fazt.sh v0.3.0 - Analytics & Personal Cloud Platform")
 	fmt.Println()
 	fmt.Println("USAGE:")
-	fmt.Println("  cc-server <command> [options]")
+	fmt.Println("  fazt <command> [options]")
 	fmt.Println()
 	fmt.Println("MAIN COMMANDS:")
 	fmt.Println("  server           Server management commands")
@@ -1095,46 +1095,46 @@ func printUsage() {
 	fmt.Println("  --version        Show version and exit")
 	fmt.Println()
 	fmt.Println("For detailed help:")
-	fmt.Println("  cc-server server --help     # Server commands")
-	fmt.Println("  cc-server client --help     # Client commands")
+	fmt.Println("  fazt server --help     # Server commands")
+	fmt.Println("  fazt client --help     # Client commands")
 	fmt.Println()
-	fmt.Println("For more information, visit: https://github.com/jikku/command-center")
+	fmt.Println("For more information, visit: https://github.com/jikkuatwork/fazt.sh")
 }
 
 // printServerHelp displays server-specific help
 func printServerHelp() {
-	fmt.Println("Command Center v0.3.0 - Server Commands")
+	fmt.Println("fazt.sh v0.3.0 - Server Commands")
 	fmt.Println()
 	fmt.Println("USAGE:")
-	fmt.Println("  cc-server server <command> [options]")
+	fmt.Println("  fazt server <command> [options]")
 	fmt.Println()
 	fmt.Println("SERVER COMMANDS:")
 	fmt.Println("  set-credentials  Set up authentication credentials")
-	fmt.Println("  start            Start the Command Center server")
-	fmt.Println("  stop             Stop a running Command Center server")
+	fmt.Println("  start            Start the fazt.sh server")
+	fmt.Println("  stop             Stop a running fazt.sh server")
 	fmt.Println("  --help, -h       Show this help")
 	fmt.Println()
 	fmt.Println("EXAMPLES:")
 	fmt.Println("  # Set up authentication")
-	fmt.Println("  cc-server server set-credentials --username admin --password secret123")
+	fmt.Println("  fazt server set-credentials --username admin --password secret123")
 	fmt.Println()
 	fmt.Println("  # Start the server")
-	fmt.Println("  cc-server server start")
+	fmt.Println("  fazt server start")
 	fmt.Println()
 	fmt.Println("  # Start on custom port")
-	fmt.Println("  cc-server server start --port 8080")
+	fmt.Println("  fazt server start --port 8080")
 	fmt.Println()
 	fmt.Println("  # Stop the server")
-	fmt.Println("  cc-server server stop")
+	fmt.Println("  fazt server stop")
 	fmt.Println()
 }
 
 // printClientHelp displays client-specific help
 func printClientHelp() {
-	fmt.Println("Command Center v0.3.0 - Client Commands")
+	fmt.Println("fazt.sh v0.3.0 - Client Commands")
 	fmt.Println()
 	fmt.Println("USAGE:")
-	fmt.Println("  cc-server client <command> [options]")
+	fmt.Println("  fazt client <command> [options]")
 	fmt.Println()
 	fmt.Println("CLIENT COMMANDS:")
 	fmt.Println("  set-auth-token   Set authentication token for deployments")
@@ -1143,18 +1143,18 @@ func printClientHelp() {
 	fmt.Println()
 	fmt.Println("EXAMPLES:")
 	fmt.Println("  # Set authentication token")
-	fmt.Println("  cc-server client set-auth-token --token abc123def456")
+	fmt.Println("  fazt client set-auth-token --token abc123def456")
 	fmt.Println()
 	fmt.Println("  # Deploy current directory")
-	fmt.Println("  cc-server client deploy --path . --domain my-site")
+	fmt.Println("  fazt client deploy --path . --domain my-site")
 	fmt.Println()
 	fmt.Println("  # Deploy to remote server")
-	fmt.Println("  cc-server client deploy --path ./build --domain app --server https://cc.example.com")
+	fmt.Println("  fazt client deploy --path ./build --domain app --server https://fazt.sh")
 	fmt.Println()
 	fmt.Println("WORKFLOW:")
-	fmt.Println("  1. Start server: cc-server server start")
+	fmt.Println("  1. Start server: fazt server start")
 	fmt.Println("  2. Visit /hosting in your browser to generate token")
-	fmt.Println("  3. Set token: cc-server client set-auth-token --token <TOKEN>")
-	fmt.Println("  4. Deploy sites: cc-server client deploy --path . --domain my-site")
+	fmt.Println("  3. Set token: fazt client set-auth-token --token <TOKEN>")
+	fmt.Println("  4. Deploy sites: fazt client deploy --path . --domain my-site")
 	fmt.Println()
 }

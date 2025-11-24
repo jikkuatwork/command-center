@@ -2,7 +2,7 @@
 
 ## Overview
 
-Command Center v0.3.0 uses a flexible JSON-based configuration system with support for CLI flags, environment variables, and a clean subcommand-based CLI interface.
+fazt.sh v0.3.0 uses a flexible JSON-based configuration system with support for CLI flags, environment variables, and a clean subcommand-based CLI interface.
 
 ## Configuration Priority
 
@@ -15,9 +15,9 @@ Configuration values are loaded in the following order (highest priority first):
 
 ## Default Locations
 
-- **Config File**: `~/.config/cc/config.json`
-- **Database**: `~/.config/cc/data.db`
-- **Backups**: `~/.config/cc/backups/`
+- **Config File**: `~/.config/fazt/config.json`
+- **Database**: `~/.config/fazt/data.db`
+- **Backups**: `~/.config/fazt/backups/`
 
 ## Configuration File Format
 
@@ -27,11 +27,11 @@ Configuration values are loaded in the following order (highest priority first):
 {
   "server": {
     "port": "4698",
-    "domain": "https://cc.toolbomber.com",
+    "domain": "https://fazt.sh",
     "env": "production"
   },
   "database": {
-    "path": "~/.config/cc/data.db"
+    "path": "~/.config/fazt/data.db"
   },
   "auth": {
     "enabled": true,
@@ -52,14 +52,14 @@ Configuration values are loaded in the following order (highest priority first):
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `server.port` | string | `"4698"` | Port to listen on |
-| `server.domain` | string | `"https://cc.toolbomber.com"` | Public domain for the server |
+| `server.domain` | string | `"https://fazt.sh"` | Public domain for the server |
 | `server.env` | string | `"development"` | Environment: `development` or `production` |
 
 #### Database Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `database.path` | string | `"~/.config/cc/data.db"` | Path to SQLite database file |
+| `database.path` | string | `"~/.config/fazt/data.db"` | Path to SQLite database file |
 
 #### Authentication Configuration
 
@@ -87,10 +87,10 @@ Configuration values are loaded in the following order (highest priority first):
 
 ## CLI Commands
 
-Command Center v0.3.0 uses a subcommand-based interface:
+fazt.sh v0.3.0 uses a subcommand-based interface:
 
 ```bash
-cc-server <command> [flags] [arguments]
+fazt <command> [flags] [arguments]
 ```
 
 ### Available Commands
@@ -107,8 +107,8 @@ cc-server <command> [flags] [arguments]
 | Command | Description |
 |---------|-------------|
 | `set-credentials` | Set up authentication credentials |
-| `start` | Start the Command Center server |
-| `stop` | Stop a running Command Center server |
+| `start` | Start the fazt.sh server |
+| `stop` | Stop a running fazt.sh server |
 
 ### Client Commands
 
@@ -131,7 +131,7 @@ cc-server <command> [flags] [arguments]
 |------|------|-------------|
 | `--path <directory>` | string | Directory to deploy (required) |
 | `--domain <subdomain>` | string | Domain/subdomain for the site (required) |
-| `--server <url>` | string | Command Center server URL |
+| `--server <url>` | string | fazt.sh server URL |
 
 #### server set-credentials command
 | Flag | Type | Description |
@@ -150,47 +150,47 @@ cc-server <command> [flags] [arguments]
 
 ```bash
 # Set up authentication (recommended first step)
-./cc-server server set-credentials --username admin --password secret123
+./fazt server set-credentials --username admin --password secret123
 
 # Set authentication token (after generating in web interface)
-./cc-server client set-auth-token --token <YOUR_TOKEN>
+./fazt client set-auth-token --token <YOUR_TOKEN>
 
 # Start the server
-./cc-server server start
+./fazt server start
 
 # Start with custom config file
-./cc-server server start --config /path/to/config.json
+./fazt server start --config /path/to/config.json
 
 # Start on custom port
-./cc-server server start --port 8080
+./fazt server start --port 8080
 
 # Start with custom database
-./cc-server server start --db /path/to/data.db
+./fazt server start --db /path/to/data.db
 
 # Stop the server
-./cc-server server stop
+./fazt server stop
 
 # Deploy a site
-./cc-server client deploy --path ./my-site --domain my-app
+./fazt client deploy --path ./my-site --domain my-app
 
 # Deploy to remote server
-./cc-server client deploy --path ./build --domain app --server https://cc.example.com
+./fazt client deploy --path ./build --domain app --server https://fazt.sh
 ```
 
 #### Getting Help
 
 ```bash
 # General help
-./cc-server --help
+./fazt --help
 
 # Category-specific help
-./cc-server server --help
-./cc-server client --help
+./fazt server --help
+./fazt client --help
 
 # Command-specific help
-./cc-server server start --help
-./cc-server client deploy --help
-./cc-server server set-credentials --help
+./fazt server start --help
+./fazt client deploy --help
+./fazt server set-credentials --help
 ```
 
 ## Environment Variables
@@ -221,7 +221,7 @@ Create `config.development.json`:
     "env": "development"
   },
   "database": {
-    "path": "./cc-dev.db"
+    "path": "./fazt-dev.db"
   },
   "auth": {
     "enabled": false,
@@ -250,11 +250,11 @@ Create `config.production.json`:
 {
   "server": {
     "port": "4698",
-    "domain": "https://cc.toolbomber.com",
+    "domain": "https://fazt.sh",
     "env": "production"
   },
   "database": {
-    "path": "~/.config/cc/data.db"
+    "path": "~/.config/fazt/data.db"
   },
   "auth": {
     "enabled": true,
@@ -282,11 +282,11 @@ Create `config.production.json`:
 The easiest way to create a config is:
 
 ```bash
-./cc-server set-credentials --username admin --password secret123
+./fazt server set-credentials --username admin --password secret123
 ```
 
 This will:
-1. Create `~/.config/cc/` directory if needed (with secure 0700 permissions)
+1. Create `~/.config/fazt/` directory if needed (with secure 0700 permissions)
 2. Generate `config.json` with your credentials
 3. Hash password with bcrypt (cost factor 12)
 4. Enable authentication
@@ -295,19 +295,19 @@ This will:
 Then start the server:
 
 ```bash
-./cc-server start
+./fazt server start
 ```
 
 ### Manual Creation
 
 1. Copy `config.example.json`:
    ```bash
-   cp config.example.json ~/.config/cc/config.json
+   cp config.example.json ~/.config/fazt/config.json
    ```
 
 2. Generate password hash:
    ```bash
-   ./cc-server set-credentials --username admin --password temp
+   ./fazt server set-credentials --username admin --password temp
    ```
 
 3. Copy the hash from the created config
@@ -357,7 +357,7 @@ Invalid port: must be 1-65535
 Failed to write config file: permission denied
 ```
 
-**Solution**: Ensure `~/.config/cc/` directory exists and you have write permissions.
+**Solution**: Ensure `~/.config/fazt/` directory exists and you have write permissions.
 
 ### Auth Enabled But No Credentials
 
@@ -398,13 +398,13 @@ The CLI interface has changed from flag-based to subcommand-based:
 ### New CLI (v0.3.0)
 ```bash
 # Set credentials
-./cc-server server set-credentials --username admin --password secret123
+./fazt server set-credentials --username admin --password secret123
 
 # Start server
-./cc-server server start
+./fazt server start
 
 # Deploy (server/client structure)
-./cc-server client deploy --path . --domain my-site
+./fazt client deploy --path . --domain my-site
 ```
 
 ### Key Changes
@@ -412,7 +412,7 @@ The CLI interface has changed from flag-based to subcommand-based:
 2. **Hierarchical commands** - Organized by functional area (server vs client)
 3. **Flag-based arguments** - All parameters use explicit flags (no positional arguments)
 4. **Removed `--env` flag** - Environment configs not supported
-5. **Consolidated config** - All settings in `~/.config/cc/config.json`
+5. **Consolidated config** - All settings in `~/.config/fazt/config.json`
 6. **Better error handling** - Clear help and error messages
 7. **Improved discoverability** - Help is categorized and context-aware
 

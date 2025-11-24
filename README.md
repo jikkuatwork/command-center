@@ -1,4 +1,4 @@
-# Command Center (CC) v0.3.0
+# fazt.sh v0.3.0
 
 A unified analytics, monitoring, tracking platform, and **Personal Cloud** with static hosting and serverless JavaScript functions.
 
@@ -30,43 +30,43 @@ A unified analytics, monitoring, tracking platform, and **Personal Cloud** with 
 
 ```bash
 # Clone the repository
-git clone https://github.com/jikkuatwork/command-center.git
-cd command-center
+git clone https://github.com/jikkuatwork/fazt.sh.git
+cd fazt.sh
 
 # Build the server
-go build -o cc-server ./cmd/server
+go build -o fazt ./cmd/server
 
 # Set up authentication (recommended)
-./cc-server server set-credentials --username admin --password secret123
+./fazt server set-credentials --username admin --password secret123
 
 # Start the server
-./cc-server server start
+./fazt server start
 ```
 
 The server starts on **port 4698**. Access the dashboard at `http://localhost:4698`
 
 ### CLI Commands
 
-Command Center uses a server/client structure:
+fazt.sh uses a server/client structure:
 
 ```bash
 # Server Management
-./cc-server server set-credentials --username admin --password secret123
-./cc-server server start [--port 8080] [--config /path/to/config.json)]
-./cc-server server stop
+./fazt server set-credentials --username admin --password secret123
+./fazt server start [--port 8080] [--config /path/to/config.json)]
+./fazt server stop
 
 # Client/Deployment
-./cc-server client set-auth-token --token <TOKEN>
-./cc-server client deploy --path ./my-site --domain my-app
-./cc-server client deploy --path ./build --domain app --server https://cc.example.com
+./fazt client set-auth-token --token <TOKEN>
+./fazt client deploy --path ./my-site --domain my-app
+./fazt client deploy --path ./build --domain app --server https://fazt.sh
 
 # Help
-./cc-server --help              # Main help
-./cc-server server --help       # Server commands
-./cc-server client --help       # Client commands
+./fazt --help              # Main help
+./fazt server --help       # Server commands
+./fazt client --help       # Client commands
 ```
 
-**Note**: Flags must come before positional arguments. The `~/.config/cc/` directory is created automatically with secure permissions.
+**Note**: Flags must come before positional arguments. The `~/.config/fazt/` directory is created automatically with secure permissions.
 
 ## Personal Cloud Usage
 
@@ -75,20 +75,20 @@ Command Center uses a server/client structure:
 Visit `http://localhost:4698/hosting` (now available in the sidebar) and create a new authentication token. Then configure it via CLI:
 
 ```bash
-./cc-server client set-auth-token --token <YOUR_TOKEN>
+./fazt client set-auth-token --token <YOUR_TOKEN>
 ```
 
-The authentication token will be saved to `~/.config/cc/config.json` and used automatically for deployments.
+The authentication token will be saved to `~/.config/fazt/config.json` and used automatically for deployments.
 
 ### 2. Deploy a Static Site
 
 ```bash
 # In your website directory
 cd my-website/
-cc-server deploy --path . --domain my-site
+fazt client deploy --path . --domain my-site
 
 # Or deploy any directory
-cc-server deploy --path /path/to/site --domain my-app
+fazt client deploy --path /path/to/site --domain my-app
 ```
 
 Your site is now live at `http://my-site.localhost:4698`
@@ -96,8 +96,8 @@ Your site is now live at `http://my-site.localhost:4698`
 ### 3. Deploy to Remote Server
 
 ```bash
-# Deploy to a remote Command Center instance
-cc-server client deploy --path ./build --domain my-app --server https://cc.example.com
+# Deploy to a remote fazt.sh instance
+fazt client deploy --path ./build --domain my-app --server https://fazt.sh
 ```
 
 ### 4. Create a Serverless App
@@ -112,7 +112,7 @@ res.json({ message: `Hello, ${name}!` });
 
 Deploy and access:
 ```bash
-cc-server client deploy --path . --domain my-app
+fazt client deploy --path . --domain my-app
 curl http://my-app.localhost:4698/?name=Claude
 # {"message":"Hello, Claude!"}
 ```
@@ -292,16 +292,16 @@ server {
 
 ```ini
 [Unit]
-Description=Command Center
+Description=fazt.sh
 After=network.target
 
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/command-center
-ExecStart=/opt/command-center/cc-server server start
+WorkingDirectory=/opt/fazt
+ExecStart=/opt/fazt/fazt server start
 Restart=always
-PIDFile=/opt/command-center/cc-server.pid
+PIDFile=/opt/fazt/fazt.pid
 
 [Install]
 WantedBy=multi-user.target
@@ -309,9 +309,9 @@ WantedBy=multi-user.target
 
 Start/stop commands:
 ```bash
-sudo systemctl start command-center
-sudo systemctl stop command-center
-sudo systemctl status command-center
+sudo systemctl start fazt
+sudo systemctl stop fazt
+sudo systemctl status fazt
 ```
 
 ## Architecture
@@ -328,4 +328,4 @@ MIT License
 
 ---
 
-**Command Center v0.3.0** | Analytics + Personal Cloud | Port 4698
+**fazt.sh v0.3.0** | Analytics + Personal Cloud | Port 4698

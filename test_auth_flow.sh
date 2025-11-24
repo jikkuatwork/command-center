@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Command Center v0.2.0 - Authentication Flow Test Script
+# fazt.sh v0.3.0 - Authentication Flow Test Script
 # Tests the complete authentication and authorization flow
 
 set -e
 
 echo "════════════════════════════════════════════════════════"
-echo " Command Center v0.2.0 - Authentication Flow Test"
+echo " fazt.sh v0.3.0 - Authentication Flow Test"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
@@ -50,7 +50,7 @@ trap cleanup EXIT
 
 echo "1. Testing credential setup..."
 rm -f /tmp/cc-test-config.json
-./cc-server --username testuser --password testpass123 --config /tmp/cc-test-config.json --db /tmp/cc-test-data.db >/dev/null 2>&1
+./fazt server set-credentials --username testuser --password testpass123 --config /tmp/cc-test-config.json --db /tmp/cc-test-data.db >/dev/null 2>&1
 if [ -f /tmp/cc-test-config.json ]; then
     pass "Credential setup creates config file"
     if grep -q "testuser" /tmp/cc-test-config.json; then
@@ -69,7 +69,7 @@ fi
 
 echo ""
 echo "2. Starting test server..."
-./cc-server --config /tmp/cc-test-config.json --db /tmp/cc-test-data.db --port 14698 > /dev/null 2>&1 &
+./fazt server start --config /tmp/cc-test-config.json --db /tmp/cc-test-data.db --port 14698 > /dev/null 2>&1 &
 SERVER_PID=$!
 sleep 3
 

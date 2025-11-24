@@ -72,8 +72,8 @@ func ParseFlags() *CLIFlags {
 	if err != nil {
 		homeDir = "."
 	}
-	defaultConfigPath := filepath.Join(homeDir, ".config", "cc", "config.json")
-	defaultDBPath := filepath.Join(homeDir, ".config", "cc", "data.db")
+	defaultConfigPath := filepath.Join(homeDir, ".config", "fazt", "config.json")
+	defaultDBPath := filepath.Join(homeDir, ".config", "fazt", "data.db")
 
 	flag.StringVar(&flags.ConfigPath, "config", defaultConfigPath, "Path to config file")
 	flag.StringVar(&flags.DBPath, "db", "", "Database file path (overrides config)")
@@ -175,7 +175,7 @@ func SaveToFile(cfg *Config, path string) error {
 // CreateDefaultConfig creates a default configuration (exported for use in main.go)
 func CreateDefaultConfig() *Config {
 	homeDir, _ := os.UserHomeDir()
-	defaultDBPath := filepath.Join(homeDir, ".config", "cc", "data.db")
+	defaultDBPath := filepath.Join(homeDir, ".config", "fazt", "data.db")
 
 	return &Config{
 		Server: ServerConfig{

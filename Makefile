@@ -2,27 +2,27 @@
 
 # Build the binary (release)
 build:
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-w -s" -o cc-server ./cmd/server
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-w -s" -o fazt ./cmd/server
 
 # Build for current OS (development)
 build-local:
-	go build -o cc-server ./cmd/server
+	go build -o fazt ./cmd/server
 
 # Run the server locally
 run: build-local
-	./cc-server
+	./fazt server start
 
 # Run with custom config
 run-with-config:
-	go run cmd/server/main.go --config ~/.config/cc/config.json
+	go run cmd/server/main.go server start --config ~/.config/fazt/config.json
 
 # Setup authentication (interactive)
 setup-auth:
-	@echo "Setting up authentication for Command Center v0.3.0"
+	@echo "Setting up authentication for fazt.sh v0.3.0"
 	@read -p "Enter username: " username; \
 	read -s -p "Enter password: " password; \
 	echo ""; \
-	go run cmd/server/main.go --username $$username --password $$password
+	go run cmd/server/main.go server set-credentials --username $$username --password $$password
 
 # Run tests
 test:
@@ -38,10 +38,10 @@ test-cover:
 
 # Clean build artifacts
 clean:
-	rm -f cc-server
+	rm -f fazt
 	rm -f cc.db cc.db-shm cc.db-wal
-	rm -f command-center-*.tar.gz
-	rm -rf ~/.config/cc/backups/
+	rm -f fazt-*.tar.gz
+	rm -rf ~/.config/fazt/backups/
 
 # Install Go dependencies
 install-deps:
@@ -50,8 +50,8 @@ install-deps:
 
 # Create release package
 release: build
-	tar -czf command-center-v0.3.0.tar.gz \
-		cc-server \
+	tar -czf fazt-v0.3.0.tar.gz \
+		fazt \
 		web/ \
 		migrations/ \
 		examples/ \
@@ -73,7 +73,7 @@ lint:
 
 # Show help
 help:
-	@echo "Command Center v0.3.0 - Makefile Targets"
+	@echo "fazt.sh v0.3.0 - Makefile Targets"
 	@echo ""
 	@echo "  make build       - Build release binary (linux/amd64)"
 	@echo "  make build-local - Build for current OS"

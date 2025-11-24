@@ -1,7 +1,7 @@
-# Command Center - AI Assistant Context
+# fazt.sh - AI Assistant Context
 
 ## Project Overview
-Command Center v0.3.0 is a Personal PaaS combining analytics tracking with static site hosting and serverless JavaScript.
+fazt.sh v0.3.0 is a Personal PaaS combining analytics tracking with static site hosting and serverless JavaScript.
 
 **Core Features**:
 - Analytics: Pageviews, pixels, redirects, webhooks
@@ -30,24 +30,24 @@ examples/                # Sample apps
 ## Key Commands
 ```bash
 # Build & Test
-go build -o cc-server ./cmd/server/
+go build -o fazt ./cmd/server/
 go test ./... -v
 
 # CLI Commands (server/client structure)
-./cc-server server set-credentials --username admin --password secret123  # Server auth
-./cc-server server start [--port 8080] [--config path]                 # Start server
-./cc-server server stop                                               # Stop server
-./cc-server client set-auth-token --token <TOKEN>                       # Set auth token
-./cc-server client deploy --path <PATH> --domain <SUBDOMAIN>           # Deploy site
-./cc-server --version                                                  # Show version
-./cc-server --help                                                     # Show help
+./fazt server set-credentials --username admin --password secret123  # Server auth
+./fazt server start [--port 8080] [--config path]                 # Start server
+./fazt server stop                                               # Stop server
+./fazt client set-auth-token --token <TOKEN>                       # Set auth token
+./fazt client deploy --path <PATH> --domain <SUBDOMAIN>           # Deploy site
+./fazt --version                                                  # Show version
+./fazt --help                                                     # Show help
 
 # Common workflows
-./cc-server server set-credentials --username admin --password secret123
-./cc-server server start
-./cc-server client set-auth-token --token abc123def456
-./cc-server client deploy --path . --domain my-app
-./cc-server client deploy --path ~/project/build --domain app --server https://cc.example.com
+./fazt server set-credentials --username admin --password secret123
+./fazt server start
+./fazt client set-auth-token --token abc123def456
+./fazt client deploy --path . --domain my-app
+./fazt client deploy --path ~/project/build --domain app --server https://fazt.sh
 ```
 
 ## Database Schema
@@ -80,20 +80,20 @@ console.log(...)
 ```
 
 ## Configuration
-**File**: `~/.config/cc/config.json` (auto-created with secure `0700` permissions)
+**File**: `~/.config/fazt/config.json` (auto-created with secure `0700` permissions)
 **Priority**: CLI flags > Config file > Environment > Defaults
 
 ```json
 {
-  "server": { "port": "4698", "domain": "https://cc.toolbomber.com", "env": "development" },
-  "database": { "path": "~/.config/cc/data.db" },
+  "server": { "port": "4698", "domain": "https://fazt.sh", "env": "development" },
+  "database": { "path": "~/.config/fazt/data.db" },
   "auth": { "enabled": true, "username": "admin", "password_hash": "bcrypt_hash" },
   "api_key": { "token": "generated_token", "name": "auto-generated" },
   "ntfy": { "topic": "", "url": "https://ntfy.sh" }
 }
 ```
 
-**Directory Creation**: `~/.config/cc/` automatically created by CLI commands with secure permissions.
+**Directory Creation**: `~/.config/fazt/` automatically created by CLI commands with secure permissions.
 
 ## Important Constraints
 - **100ms JS timeout** - Serverless execution limit
