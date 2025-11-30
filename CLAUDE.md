@@ -42,3 +42,6 @@
 1.  **Update**: Replace the `fazt` binary.
 2.  **Backup**: Copy `data.db`.
 3.  **Certificates**: Stored in `certificates` table (managed by CertMagic).
+
+## Pending Features
+- **Auto-Provisioning**: `fazt server install` command (See `koder/plans/08_auto_install.md`).
