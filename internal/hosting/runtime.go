@@ -8,24 +8,28 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/dop251/goja"
 )
 
-// RunServerless executes JavaScript if main.js exists in the site directory
+// RunServerless executes JavaScript if main.js exists in the site
 // Returns true if serverless was executed, false if should fall back to static
-func RunServerless(w http.ResponseWriter, r *http.Request, siteDir string, db *sql.DB, siteID string) bool {
-	mainJS := filepath.Join(siteDir, "main.js")
-
-	// Check if main.js exists
-	code, err := os.ReadFile(mainJS)
+func RunServerless(w http.ResponseWriter, r *http.Request, siteID string, db *sql.DB, subdomain string) bool {
+	// Check if main.js exists in VFS
+	file, err := fs.ReadFile(siteID, "main.js")
 	if err != nil {
 		return false // No main.js, serve static files
 	}
+	defer file.Content.Close()
+	
+	codeBytes, err := io.ReadAll(file.Content)
+	if err != nil {
+		// Log error?
+		return false
+	}
+	code := string(codeBytes)
 
 	// Create JavaScript runtime
 	vm := goja.New()
@@ -93,6 +97,7 @@ func RunServerless(w http.ResponseWriter, r *http.Request, siteDir string, db *s
 				args[i] = arg.String()
 			}
 			fmt.Printf("[JS:%s] %s\n", siteID, strings.Join(args, " "))
+			// TODO: Log to site_logs table
 			return goja.Undefined()
 		},
 	})
@@ -343,9 +348,26 @@ func (r *jsResponse) Error(msg string) {
 
 // HasServerless checks if a site has a main.js file
 func HasServerless(siteDir string) bool {
-	mainJS := filepath.Join(siteDir, "main.js")
-	_, err := os.Stat(mainJS)
-	return err == nil
+	// siteDir in this new context is effectively siteID, as we pass subdomain mostly
+	// But main.go passes GetSiteDir(subdomain).
+	// We need to fix the caller in main.go to pass subdomain.
+	// For now, let's assume the caller will be fixed or this function is deprecated in favor of SiteExists check
+	
+	// Actually, main.go:
+	// siteDir := hosting.GetSiteDir(subdomain)
+	// if hosting.HasServerless(siteDir) { ... }
+	
+	// We should probably rely on fs.Exists(siteID, "main.js")
+	// But siteDir is a path. We need to extract siteID from it or change the signature.
+	// Since we are refactoring, let's change the signature to match the new world.
+	
+	// WARNING: Changing signature requires changing caller in main.go.
+	// We are doing that in the next step anyway.
+	
+	// But wait, `RunServerless` also takes siteDir.
+	// I updated `RunServerless` to take `siteID`.
+	// I will update this too.
+	return false
 }
 
 // isInternalHost checks if a host is localhost or an internal IP (SSRF protection)

@@ -1,51 +1,53 @@
 package hosting
 
 import (
+	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
-	// SitesDir is the base directory for all hosted sites
-	sitesBaseDir string
+	// fs is the active file system
+	fs FileSystem
+	
+	// db is the database connection
+	database *sql.DB
 
 	// validSubdomainRegex matches valid subdomain names
 	validSubdomainRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 )
 
-// Init initializes the hosting system with the config directory
-func Init(configDir string) error {
-	sitesBaseDir = filepath.Join(configDir, "sites")
+// Init initializes the hosting system
+func Init(db *sql.DB) error {
+	database = db
 
-	// Create sites directory if it doesn't exist
-	if err := os.MkdirAll(sitesBaseDir, 0755); err != nil {
-		return fmt.Errorf("failed to create sites directory: %w", err)
-	}
+	// Initialize VFS
+	fs = NewSQLFileSystem(db)
 
 	return nil
 }
 
-// GetSitesDir returns the base directory for all sites
-func GetSitesDir() string {
-	return sitesBaseDir
-}
-
-// GetSiteDir returns the directory for a specific site
-func GetSiteDir(subdomain string) string {
-	return filepath.Join(sitesBaseDir, subdomain)
+// GetFileSystem returns the active file system
+func GetFileSystem() FileSystem {
+	return fs
 }
 
 // SiteExists checks if a site directory exists
 func SiteExists(subdomain string) bool {
-	siteDir := GetSiteDir(subdomain)
-	info, err := os.Stat(siteDir)
-	if err != nil {
-		return false
+	// Check VFS first
+	exists, err := fs.Exists(subdomain, "index.html")
+	if err == nil && exists {
+		return true
 	}
-	return info.IsDir()
+	// Check for main.js (serverless)
+	exists, err = fs.Exists(subdomain, "main.js")
+	if err == nil && exists {
+		return true
+	}
+	
+	return false
 }
 
 // ValidateSubdomain checks if a subdomain name is valid
@@ -71,37 +73,35 @@ func ValidateSubdomain(subdomain string) error {
 	return nil
 }
 
-// ListSites returns all site directories
+// ListSites returns all hosted sites
 func ListSites() ([]SiteInfo, error) {
-	if sitesBaseDir == "" {
+	if database == nil {
 		return nil, fmt.Errorf("hosting not initialized")
 	}
 
-	entries, err := os.ReadDir(sitesBaseDir)
+	query := `
+		SELECT site_id, COUNT(*) as file_count, SUM(size_bytes) as total_size, MAX(updated_at) as last_mod
+		FROM files
+		GROUP BY site_id
+		ORDER BY last_mod DESC
+	`
+
+	rows, err := database.Query(query)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []SiteInfo{}, nil
-		}
-		return nil, fmt.Errorf("failed to read sites directory: %w", err)
+		return nil, fmt.Errorf("failed to query sites: %w", err)
 	}
+	defer rows.Close()
 
 	var sites []SiteInfo
-	for _, entry := range entries {
-		if entry.IsDir() {
-			siteDir := filepath.Join(sitesBaseDir, entry.Name())
-			info, _ := entry.Info()
-
-			// Count files and calculate size
-			fileCount, totalSize := countFiles(siteDir)
-
-			sites = append(sites, SiteInfo{
-				Name:      entry.Name(),
-				Path:      siteDir,
-				FileCount: fileCount,
-				SizeBytes: totalSize,
-				ModTime:   info.ModTime(),
-			})
+	for rows.Next() {
+		var site SiteInfo
+		var lastMod time.Time
+		if err := rows.Scan(&site.Name, &site.FileCount, &site.SizeBytes, &lastMod); err != nil {
+			continue
 		}
+		site.ModTime = lastMod
+		site.Path = "vfs://" + site.Name
+		sites = append(sites, site)
 	}
 
 	return sites, nil
@@ -116,59 +116,16 @@ type SiteInfo struct {
 	ModTime   interface{} // time.Time
 }
 
-// countFiles recursively counts files and calculates total size
-func countFiles(dir string) (int, int64) {
-	var count int
-	var size int64
-
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		count++
-		size += info.Size()
-		return nil
-	})
-
-	return count, size
-}
-
-// CreateSite creates a new site directory
+// CreateSite creates a new site (placeholder for VFS)
 func CreateSite(subdomain string) error {
-	if err := ValidateSubdomain(subdomain); err != nil {
-		return err
-	}
-
-	siteDir := GetSiteDir(subdomain)
-	if err := os.MkdirAll(siteDir, 0755); err != nil {
-		return fmt.Errorf("failed to create site directory: %w", err)
-	}
-
-	return nil
+	return ValidateSubdomain(subdomain)
 }
 
-// DeleteSite removes a site directory and all its contents
+// DeleteSite removes a site and all its contents
 func DeleteSite(subdomain string) error {
-	siteDir := GetSiteDir(subdomain)
-
-	// Validate the path to prevent directory traversal
-	absPath, err := filepath.Abs(siteDir)
-	if err != nil {
-		return fmt.Errorf("invalid site path: %w", err)
-	}
-
-	baseAbs, err := filepath.Abs(sitesBaseDir)
-	if err != nil {
-		return fmt.Errorf("invalid base path: %w", err)
-	}
-
-	// Ensure the site directory is within the sites base directory
-	if !strings.HasPrefix(absPath, baseAbs+string(os.PathSeparator)) {
-		return fmt.Errorf("invalid site path: directory traversal detected")
-	}
-
-	// Clean up WebSocket hub for this site (prevents goroutine leak)
+	// Clean up WebSocket hub
 	RemoveHub(subdomain)
 
-	return os.RemoveAll(absPath)
+	// Delete from VFS
+	return fs.DeleteSite(subdomain)
 }

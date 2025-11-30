@@ -32,6 +32,7 @@ import (
 	"github.com/jikku/command-center/internal/security"
 	"golang.org/x/crypto/bcrypt"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/caddyserver/certmagic"
 )
 
 const Version = "v0.4.0"
@@ -505,7 +506,7 @@ func extractSubdomain(host, mainDomain string) string {
 }
 
 // siteHandler handles requests for hosted sites
-// Serves static files from ~/.config/fazt/sites/{subdomain}/
+// Serves files from VFS
 // If main.js exists, executes serverless JavaScript instead
 // WebSocket connections at /ws are handled by the WebSocket hub
 func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
@@ -524,23 +525,20 @@ func siteHandler(w http.ResponseWriter, r *http.Request, subdomain string) {
 	// Log analytics event for site visits
 	logSiteVisit(r, subdomain)
 
-	// Get the site directory
-	siteDir := hosting.GetSiteDir(subdomain)
-
 	// Check for serverless (main.js)
-	if hosting.HasServerless(siteDir) {
+	// We check directly in VFS now
+	fs := hosting.GetFileSystem()
+	hasServerless, _ := fs.Exists(subdomain, "main.js")
+
+	if hasServerless {
 		db := database.GetDB()
-		if hosting.RunServerless(w, r, siteDir, db, subdomain) {
+		if hosting.RunServerless(w, r, subdomain, db, subdomain) {
 			return // Serverless handled the request
 		}
 	}
 
-	// Create a secure file server for this site (prevents path traversal)
-	fileServer := hosting.NewSecureFileServer(siteDir)
-
-	// Serve the request
-	// Strip nothing since we're serving from root of site directory
-	fileServer.ServeHTTP(w, r)
+	// Serve from VFS
+	hosting.ServeVFS(w, r, subdomain)
 }
 
 // logSiteVisit logs an analytics event for a site visit
@@ -1205,11 +1203,10 @@ func handleStartCommand() {
 	}
 
 	// Initialize hosting system
-	configDir := filepath.Dir(cfg.Database.Path)
-	if err := hosting.Init(configDir); err != nil {
+	if err := hosting.Init(database.GetDB()); err != nil {
 		log.Fatalf("Failed to initialize hosting: %v", err)
 	}
-	log.Printf("Hosting initialized: %s", hosting.GetSitesDir())
+	log.Printf("Hosting initialized (VFS Mode)")
 
 	// Generate mock data in development mode
 	if cfg.IsDevelopment() {
@@ -1313,9 +1310,62 @@ func handleStartCommand() {
 	// Start server in a goroutine
 	go func() {
 		log.Printf("Server starting on :%s", cfg.Server.Port)
-		log.Printf("Dashboard: http://localhost:%s", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
+		log.Printf("Dashboard: %s", cfg.Server.Domain)
+
+		if cfg.HTTPS.Enabled {
+			// Configure CertMagic
+			log.Println("HTTPS Enabled: Using CertMagic")
+			
+			// Initialize SQL Storage
+			certStorage := database.NewSQLCertStorage(database.GetDB())
+			
+			certmagic.DefaultACME.Email = cfg.HTTPS.Email
+			if cfg.HTTPS.Staging {
+				certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
+			}
+			
+			// Use our SQL storage
+			certmagic.Default.Storage = certStorage
+
+			// Get allowed domains
+			// We want to serve the main domain and any hosted subdomains.
+			// CertMagic OnDemand allows serving any domain we have permission for.
+			// But we need to restrict it to prevent abuse.
+			// For personal PaaS, we might only allow *.domain.com and domain.com.
+			
+			// Configure OnDemand TLS
+			cfgDomain := extractDomain(cfg.Server.Domain)
+			certmagic.Default.OnDemand = &certmagic.OnDemandConfig{
+				DecisionFunc: func(ctx context.Context, name string) error {
+					// Allow main domain
+					if name == cfgDomain {
+						return nil
+					}
+					// Allow subdomains of main domain
+					if strings.HasSuffix(name, "."+cfgDomain) {
+						// Optionally check if site exists in DB?
+						// if !hosting.SiteExists(extractSubdomain(name, cfgDomain)) { return fmt.Errorf("unknown site") }
+						return nil
+					}
+					return fmt.Errorf("domain not allowed")
+				},
+			}
+
+			// Start HTTPS server
+			// certmagic.HTTPS blocks, so we wrap the handler
+			// Note: CertMagic listens on :80 and :443 by default.
+			// If cfg.Server.Port is not 443, this might be confusing.
+			// CertMagic manages the listeners.
+			
+			err := certmagic.HTTPS([]string{cfgDomain}, handler)
+			if err != nil {
+				log.Fatalf("HTTPS Server failed: %v", err)
+			}
+		} else {
+			// Standard HTTP
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Server failed to start: %v", err)
+			}
 		}
 	}()
 
@@ -1410,93 +1460,82 @@ func handleStopCommand() {
 
 // printUsage displays the usage information
 func printUsage() {
-	fmt.Println("fazt.sh v0.4.0 - Analytics & Personal Cloud Platform")
+	fmt.Println("fazt.sh v0.5.0 - Personal Cloud Platform")
 	fmt.Println()
 	fmt.Println("USAGE:")
 	fmt.Println("  fazt <command> [options]")
 	fmt.Println()
 	fmt.Println("MAIN COMMANDS:")
-	fmt.Println("  server           Server management commands (init, status, start, stop, etc.)")
+	fmt.Println("  server           Server management (init, start, status, etc.)")
 	fmt.Println("  client           Client/deployment commands")
 	fmt.Println("  deploy           Deploy a site (shortcut for 'client deploy')")
 	fmt.Println("  --help, -h       Show this help")
 	fmt.Println("  --version        Show version and exit")
 	fmt.Println()
 	fmt.Println("For detailed help:")
-	fmt.Println("  fazt server --help     # Server commands (init, status, set-config, etc.)")
+	fmt.Println("  fazt server --help     # Server commands")
 	fmt.Println("  fazt client --help     # Client commands")
 	fmt.Println()
 	fmt.Println("Quick start:")
-	fmt.Println("  fazt server init --username admin --password secret --domain https://example.com")
-	fmt.Println("  fazt server start")
-	fmt.Println("  fazt deploy --path ./site --domain myapp")
+	fmt.Println("  1. Initialize:")
+	fmt.Println("     fazt server init --username admin --password secret --domain https://example.com")
+	fmt.Println("  2. Start server:")
+	fmt.Println("     fazt server start")
+	fmt.Println("  3. Deploy site:")
+	fmt.Println("     fazt deploy --path ./site --domain myapp")
 	fmt.Println()
-	fmt.Println("For more information, visit: https://github.com/jikkuatwork/fazt.sh")
+	fmt.Println("Architecture: Single Binary + SQLite (Cartridge Model)")
+	fmt.Println("HTTPS:        Native (CertMagic) - No Nginx required")
 }
 
 // printServerHelp displays server-specific help
 func printServerHelp() {
-	fmt.Println("fazt.sh v0.4.0 - Server Commands")
+	fmt.Println("fazt.sh v0.5.0 - Server Commands")
 	fmt.Println()
 	fmt.Println("USAGE:")
 	fmt.Println("  fazt server <command> [options]")
 	fmt.Println()
 	fmt.Println("SERVER COMMANDS:")
-	fmt.Println("  init             Initialize server configuration (first-time setup)")
-	fmt.Println("  status           Show current configuration and server status")
-	fmt.Println("  set-credentials  Update authentication credentials")
-	fmt.Println("  set-config       Update server configuration (domain, port, environment)")
-	fmt.Println("  start            Start the fazt.sh server")
-	fmt.Println("  stop             Stop a running fazt.sh server")
+	fmt.Println("  init             Initialize server (creates config & db)")
+	fmt.Println("  status           Show configuration and server status")
+	fmt.Println("  start            Start the server (HTTP or HTTPS)")
+	fmt.Println("  stop             Stop the running server")
+	fmt.Println("  set-credentials  Update admin credentials")
+	fmt.Println("  set-config       Update settings (domain, port, env)")
 	fmt.Println("  --help, -h       Show this help")
 	fmt.Println()
 	fmt.Println("EXAMPLES:")
-	fmt.Println("  # Initialize server (first-time setup)")
-	fmt.Println("  fazt server init --username admin --password secret123 --domain https://fazt.example.com")
+	fmt.Println("  # Initialize (required first step)")
+	fmt.Println("  fazt server init --username admin --password secret --domain https://fazt.example.com")
 	fmt.Println()
-	fmt.Println("  # Check server status")
-	fmt.Println("  fazt server status")
+	fmt.Println("  # Enable HTTPS (Let's Encrypt)")
+	fmt.Println("  # Edit ~/.config/fazt/config.json and set https.enabled=true")
 	fmt.Println()
-	fmt.Println("  # Update credentials")
-	fmt.Println("  fazt server set-credentials --username admin --password newsecret")
-	fmt.Println()
-	fmt.Println("  # Update configuration")
-	fmt.Println("  fazt server set-config --domain https://new.example.com --port 8080 --env production")
-	fmt.Println()
-	fmt.Println("  # Start the server")
+	fmt.Println("  # Start server")
 	fmt.Println("  fazt server start")
-	fmt.Println()
-	fmt.Println("  # Stop the server")
-	fmt.Println("  fazt server stop")
 	fmt.Println()
 }
 
 // printClientHelp displays client-specific help
 func printClientHelp() {
-	fmt.Println("fazt.sh v0.4.0 - Client Commands")
+	fmt.Println("fazt.sh v0.5.0 - Client Commands")
 	fmt.Println()
 	fmt.Println("USAGE:")
 	fmt.Println("  fazt client <command> [options]")
 	fmt.Println()
 	fmt.Println("CLIENT COMMANDS:")
-	fmt.Println("  set-auth-token   Set authentication token for deployments")
-	fmt.Println("  deploy           Deploy a directory to a site")
+	fmt.Println("  set-auth-token   Set deployment token (from dashboard)")
+	fmt.Println("  deploy           Deploy a site/app to the server")
 	fmt.Println("  --help, -h       Show this help")
 	fmt.Println()
 	fmt.Println("EXAMPLES:")
-	fmt.Println("  # Set authentication token")
-	fmt.Println("  fazt client set-auth-token --token abc123def456")
+	fmt.Println("  # Configure client")
+	fmt.Println("  fazt client set-auth-token --token <TOKEN>")
 	fmt.Println()
-	fmt.Println("  # Deploy current directory")
+	fmt.Println("  # Deploy static site")
 	fmt.Println("  fazt client deploy --path . --domain my-site")
 	fmt.Println()
-	fmt.Println("  # Deploy to remote server")
-	fmt.Println("  fazt client deploy --path ./build --domain app --server https://fazt.sh")
-	fmt.Println()
-	fmt.Println("WORKFLOW:")
-	fmt.Println("  1. Start server: fazt server start")
-	fmt.Println("  2. Visit /hosting in your browser to generate token")
-	fmt.Println("  3. Set token: fazt client set-auth-token --token <TOKEN>")
-	fmt.Println("  4. Deploy sites: fazt client deploy --path . --domain my-site")
+	fmt.Println("  # Deploy serverless app (main.js)")
+	fmt.Println("  fazt client deploy --path ./api --domain my-api")
 	fmt.Println()
 }

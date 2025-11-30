@@ -5,8 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"io"
-	"os"
+	"mime"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,23 +20,20 @@ type DeployResult struct {
 	FileCount int
 }
 
-// DeploySite extracts a ZIP file to the site directory
+// DeploySite extracts a ZIP file to the VFS
 func DeploySite(zipReader *zip.Reader, subdomain string) (*DeployResult, error) {
 	// Validate subdomain
 	if err := ValidateSubdomain(subdomain); err != nil {
 		return nil, err
 	}
 
-	siteDir := GetSiteDir(subdomain)
-
-	// Clean existing site directory
-	if err := os.RemoveAll(siteDir); err != nil {
-		return nil, fmt.Errorf("failed to clean existing site: %w", err)
-	}
-
-	// Create site directory
-	if err := os.MkdirAll(siteDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create site directory: %w", err)
+	// Clear existing site files?
+	// The VFS WriteFile does INSERT OR UPDATE, so files are overwritten.
+	// But stale files (files removed in the new deploy) would remain.
+	// Ideally we should delete the site first or track current files.
+	// For now, let's delete the site first to ensure a clean state (Cartridge style).
+	if err := fs.DeleteSite(subdomain); err != nil {
+		return nil, fmt.Errorf("failed to clear existing site: %w", err)
 	}
 
 	var totalSize int64
@@ -47,35 +43,40 @@ func DeploySite(zipReader *zip.Reader, subdomain string) (*DeployResult, error) 
 	for _, file := range zipReader.File {
 		// Security: Prevent path traversal
 		cleanPath := filepath.Clean(file.Name)
-		if strings.HasPrefix(cleanPath, "..") || strings.HasPrefix(cleanPath, "/") {
+		if strings.HasPrefix(cleanPath, "..") || strings.HasPrefix(cleanPath, "/") || strings.Contains(cleanPath, "\\") {
 			continue // Skip files that try to escape
 		}
+		
+		// Normalize path to forward slashes for DB consistency
+		cleanPath = filepath.ToSlash(cleanPath)
 
-		destPath := filepath.Join(siteDir, cleanPath)
-
-		// Verify the destination is within the site directory
-		if !strings.HasPrefix(destPath, filepath.Clean(siteDir)+string(os.PathSeparator)) {
-			continue // Skip files that escape via symlinks or other tricks
-		}
-
+		// Skip directories (we only store files)
 		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(destPath, 0755); err != nil {
-				return nil, fmt.Errorf("failed to create directory %s: %w", cleanPath, err)
-			}
 			continue
 		}
 
-		// Ensure parent directory exists
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create parent directory: %w", err)
+		// Open file from zip
+		src, err := file.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file %s: %w", file.Name, err)
 		}
 
-		// Extract file
-		if err := extractFile(file, destPath); err != nil {
-			return nil, fmt.Errorf("failed to extract %s: %w", cleanPath, err)
+		// Determine MIME type
+		ext := filepath.Ext(cleanPath)
+		mimeType := mime.TypeByExtension(ext)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
 		}
 
-		totalSize += file.FileInfo().Size()
+		// Write to VFS
+		fileSize := file.FileInfo().Size()
+		if err := fs.WriteFile(subdomain, cleanPath, src, fileSize, mimeType); err != nil {
+			src.Close()
+			return nil, fmt.Errorf("failed to write file %s: %w", cleanPath, err)
+		}
+		src.Close()
+
+		totalSize += fileSize
 		fileCount++
 	}
 
@@ -84,26 +85,6 @@ func DeploySite(zipReader *zip.Reader, subdomain string) (*DeployResult, error) 
 		SizeBytes: totalSize,
 		FileCount: fileCount,
 	}, nil
-}
-
-// extractFile extracts a single file from the ZIP archive
-func extractFile(file *zip.File, destPath string) error {
-	src, err := file.Open()
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-
-	dst, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	// Limit file size to prevent zip bombs (100MB per file)
-	limited := io.LimitReader(src, 100*1024*1024)
-	_, err = io.Copy(dst, limited)
-	return err
 }
 
 // ValidateAPIKey validates an API key against the database

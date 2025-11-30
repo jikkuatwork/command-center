@@ -19,6 +19,7 @@ type Config struct {
 	Auth AuthConfig     `json:"auth"`
 	Ntfy NtfyConfig     `json:"ntfy"`
 	APIKey APIKeyConfig `json:"api_key,omitempty"`
+	HTTPS  HTTPSConfig  `json:"https"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -26,6 +27,13 @@ type ServerConfig struct {
 	Port   string `json:"port"`
 	Domain string `json:"domain"`
 	Env    string `json:"env"` // development/production
+}
+
+// HTTPSConfig holds automatic HTTPS configuration
+type HTTPSConfig struct {
+	Enabled bool   `json:"enabled"`
+	Email   string `json:"email"` // ACME contact email
+	Staging bool   `json:"staging"` // Use Let's Encrypt Staging
 }
 
 // DatabaseConfig holds database configuration
@@ -72,7 +80,6 @@ func ParseFlags() *CLIFlags {
 		homeDir = "."
 	}
 	defaultConfigPath := filepath.Join(homeDir, ".config", "fazt", "config.json")
-	defaultDBPath := filepath.Join(homeDir, ".config", "fazt", "data.db")
 
 	flag.StringVar(&flags.ConfigPath, "config", defaultConfigPath, "Path to config file")
 	flag.StringVar(&flags.DBPath, "db", "", "Database file path (overrides config)")
@@ -81,11 +88,6 @@ func ParseFlags() *CLIFlags {
 	flag.StringVar(&flags.Password, "password", "", "Set/update password (updates config)")
 
 	flag.Parse()
-
-	// If no db path provided via flag, use default
-	if flags.DBPath == "" {
-		flags.DBPath = defaultDBPath
-	}
 
 	return flags
 }
@@ -193,6 +195,11 @@ func CreateDefaultConfig() *Config {
 			Topic: "",
 			URL:   "https://ntfy.sh",
 		},
+		HTTPS: HTTPSConfig{
+			Enabled: false,
+			Email:   "",
+			Staging: true,
+		},
 	}
 }
 
@@ -269,6 +276,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.PasswordHash == "" {
 		return errors.New("auth password hash is required")
+	}
+
+	// Validate HTTPS
+	if c.HTTPS.Enabled {
+		if c.HTTPS.Email == "" {
+			return errors.New("https email is required when https is enabled")
+		}
 	}
 
 	return nil
