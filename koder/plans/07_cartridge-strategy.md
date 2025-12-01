@@ -1,6 +1,6 @@
 # Cartridge Architecture Strategy: The "Unikernel-Lite" Transformation
 
-**Status:** Planning
+**Status:** Completed ✅
 **Target Version:** v0.5.0
 **Goal:** Transform `fazt` into a stateless single-binary application where all persistent state (files, certs, data) lives in `fazt.db`.
 
@@ -16,16 +16,16 @@
 
 ### Tasks
 1.  **Integration Tests (`internal/hosting`)**:
-    -   `TestDeploySite`: Deploy a ZIP, verify files exist.
-    -   `TestServeSite`: Request files, verify content/headers.
-    -   `TestServerless`: Deploy `main.js`, verify execution.
+    -   [x] `TestDeploySite`: Deploy a ZIP, verify files exist.
+    -   [x] `TestServeSite`: Request files, verify content/headers.
+    -   [x] `TestServerless`: Deploy `main.js`, verify execution.
 2.  **E2E Test Script (`test_e2e_hosting.sh`)**:
-    -   Spin up a test server (random port).
-    -   Use `curl` to create an account/token.
-    -   Deploy a static site (HTML + CSS).
-    -   Deploy a serverless app (Counter).
-    -   `curl` the subdomains and verify output.
-    -   Verify `events` table entries.
+    -   [x] Spin up a test server (random port).
+    -   [x] Use `curl` to create an account/token.
+    -   [x] Deploy a static site (HTML + CSS).
+    -   [x] Deploy a serverless app (Counter).
+    -   [x] `curl` the subdomains and verify output.
+    -   [x] Verify `events` table entries.
 
 ---
 
@@ -34,29 +34,11 @@
 
 ### Tasks
 1.  **Create `migrations/004_vfs.sql`**:
-    ```sql
-    -- The Virtual Filesystem
-    CREATE TABLE files (
-        site_id TEXT NOT NULL,
-        path TEXT NOT NULL,         -- e.g. "/index.html"
-        content BLOB,
-        size_bytes INTEGER NOT NULL,
-        mime_type TEXT,
-        hash TEXT NOT NULL,         -- SHA256 for ETag
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (site_id, path)
-    );
-    CREATE INDEX idx_files_site_path ON files(site_id, path);
-
-    -- CertMagic Storage
-    CREATE TABLE certificates (
-        key TEXT PRIMARY KEY,       -- CertMagic key
-        value BLOB,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    ```
-2.  **Update `internal/database/db.go`**: Register new migration.
+    - [x] Create `files` table (VFS).
+    - [x] Create `certificates` table (CertMagic).
+2.  **Update `internal/database/db.go`**:
+    - [x] Register new migration.
+    - [x] Embed migrations via `embed.FS`.
 
 ---
 
@@ -65,15 +47,14 @@
 
 ### Tasks
 1.  **Create `internal/hosting/vfs.go`**:
-    -   `type FileSystem interface { ... }`
-    -   `type SQLFileSystem struct { db *sql.DB }`
-    -   Implement: `WriteFile(siteID, path, content)`, `ReadFile(siteID, path)`, `DeleteSite(siteID)`.
+    -   [x] `type FileSystem interface { ... }`
+    -   [x] `type SQLFileSystem struct { db *sql.DB }`
+    -   [x] Implement: `WriteFile`, `ReadFile`, `DeleteSite`.
 2.  **Refactor `internal/hosting/deploy.go`**:
-    -   Remove `os.Mkdir` / `os.Create`.
-    -   Stream ZIP content directly into `files` table.
-    -   Calculate SHA256 hash during upload.
+    -   [x] Remove `os.Mkdir` / `os.Create`.
+    -   [x] Stream ZIP content directly into `files` table.
 3.  **Refactor `internal/hosting/runtime.go`**:
-    -   Change `os.ReadFile("main.js")` to `vfs.ReadFile(...)`.
+    -   [x] Change `os.ReadFile("main.js")` to `vfs.ReadFile(...)`.
 
 ---
 
@@ -82,16 +63,9 @@
 
 ### Tasks
 1.  **Create `VFSHandler` in `internal/hosting/handler.go`**:
-    -   Input: `siteID`, `path`.
-    -   Logic:
-        -   Query `files` table.
-        -   If not found -> 404.
-        -   Set `Content-Type` (from DB).
-        -   Set `ETag` (from DB hash).
-        -   Handle `If-None-Match` (return 304).
-        -   Stream BLOB to response.
+    -   [x] Logic: Query `files` -> Set Content-Type/ETag -> Stream BLOB.
 2.  **Update `cmd/server/main.go`**:
-    -   Replace `http.FileServer` with `hosting.VFSHandler`.
+    -   [x] Replace `http.FileServer` with `hosting.VFSHandler`.
 
 ---
 
@@ -100,28 +74,24 @@
 
 ### Tasks
 1.  **Create `internal/certstore/store.go`**:
-    -   Implement `certmagic.Storage` interface backed by `certificates` table.
+    -   [x] Implement `certmagic.Storage` interface backed by `certificates` table.
 2.  **Update `cmd/server/main.go`**:
-    -   Add `--https` flag (default: false for dev).
-    -   If enabled:
-        -   Initialize `certmagic.Config` with SQL storage.
-        -   Use `certmagic.HTTPS(mux, domains...)`.
+    -   [x] Add `--https` flag.
+    -   [x] Use `certmagic.HTTPS(mux, domains...)` with SQL storage.
 
 ---
 
 ## Phase 6: Cleanup & Polish
-**Objective:** Remove legacy code.
+**Objective:** Remove legacy code and ensure production readiness.
 
 ### Tasks
 1.  **Delete `~/.config/fazt/sites/`**: No longer needed.
-2.  **Update `status` command**: Report VFS usage (SQL count/size) instead of disk usage.
-3.  **Documentation**: Update architecture diagrams and backup guides.
+2.  **Update `status` command**: Report VFS usage.
+3.  **Documentation**: Updated diagrams and guides.
+4.  **Static Binary**: Switched to `modernc.org/sqlite` (Pure Go) for CGO-free builds.
+5.  **Embedded Assets**: Web templates and static files are now inside the binary.
 
 ---
 
-## Test Plan for Transition
-1.  Run **Phase 1 Tests** on v0.4.0 (Baseline).
-2.  Implement Phase 2 & 3.
-3.  Run **Phase 1 Tests** (Should fail or need adjustment for "Deploy" check).
-4.  Implement Phase 4.
-5.  Run **Phase 1 Tests** (Should pass, proving VFS behaves like Disk).
+## Status Update (v0.5.0)
+The Cartridge Architecture is fully implemented. The application is now a single static binary that contains the entire runtime, database schema, and UI assets. It can be deployed to any Linux server with a single command.
